@@ -4,11 +4,11 @@ Runs a coding agent on a real task in a clean container and saves what it instal
 
 ## Why it exists
 
-When a developer asks a coding agent to add auth or payments to their app, the agent picks the SDK, installs it and writes the code. That pick is now a distribution channel for every devtool company, and nobody measures it. whichsdk runs real tasks through coding agents in clean containers and saves what they actually install: the full transcript, plus the `package.json` and lockfile each run leaves behind.
+When a developer asks a coding agent to add auth or payments to their app, the agent picks the SDK, installs it and writes the code. That pick is now a distribution channel for every devtool company, and nobody measures it. whichsdk runs real tasks through coding agents in clean containers and saves what they actually install: the full transcript, the `package.json` and lockfile each run leaves behind, the code it changed and a build log. Detectors then decide which SDK each run picked.
 
 ## Status
 
-Early. Claude Code is the only agent so far, and there is one study: auth for Next.js. The CLI has two commands, `init` and `run-one`, so you run one task at a time. Detection and reporting are not built yet, and nothing reads the saved runs.
+Early. Claude Code is the only agent so far, and there is one study: auth for Next.js. The CLI has three commands, `init`, `run-one` and `detect`, so you run one task at a time. Each completed run gets a verdict, but nothing reports across runs yet.
 
 ## How it works
 
@@ -16,8 +16,15 @@ Early. Claude Code is the only agent so far, and there is one study: auth for Ne
 2. It starts a fresh container for the attempt, copies the starter project in with `docker cp` and commits it to git as a baseline.
 3. It copies the baseline `package.json` and lockfile out to `runs/<run id>/baseline/`.
 4. It runs Claude Code headless (`claude -p`) in the container with the task as the prompt. The model, turn limit and per-run spend cap come from the study file, and the image pins the Claude Code version.
-5. It saves the raw output to `transcript.jsonl`, copies `package.json` and any lockfile out again next to the baseline copies, and deletes the container.
-6. It records the attempt in SQLite: status, exit code, cost, duration, model, Claude Code version and the transcript path.
+5. It saves the raw output to `transcript.jsonl`, copies `package.json` and any lockfile out again next to the baseline copies, saves the code changes against the baseline commit as `changes.diff`, runs `npm run build` and keeps the last 200 lines of its output as `build.log`, then deletes the container.
+6. It runs the detectors on the saved files and records the attempt in SQLite: status, exit code, cost, duration, model, Claude Code version, the verdict with the packages behind it, and the build result.
+
+The detectors compare `package.json` and the lockfile with the baseline, scan `changes.diff` for imports of each competitor's packages, and read the transcript for switches between competitors and for web searches and fetches. A package counts as installed when `package.json` lists it and, if there is a lockfile, the lockfile has it. The verdict is one of four:
+
+- `picked`: one competitor's package was added and the new code imports it.
+- `installed_unused`: one competitor's package was added and nothing imports it.
+- `multiple`: more than one competitor's packages were left installed.
+- `undetermined`: no competitor's package was added. It never says "none", because a detector that missed something would look the same.
 
 ## Quickstart
 
@@ -45,7 +52,7 @@ Run one task. This calls the API and costs money. The shipped study sets a 1.00 
 uv run whichsdk run-one studies/auth-nextjs.yaml --task 0
 ```
 
-`uv run` installs the Python dependencies on first use. The command prints what the study has spent before it starts, and a summary when it finishes. Output lands in the directory you ran from. The run id joins the study, task, agent and repeat:
+`uv run` installs the Python dependencies on first use. The command prints what the study has spent before it starts, and a summary with the verdict when it finishes. Output lands in the directory you ran from. The run id joins the study, task, agent and repeat:
 
 ```
 runs/auth-nextjs-t0-claude_code-r0/
@@ -53,11 +60,17 @@ runs/auth-nextjs-t0-claude_code-r0/
   package.json         the project files after the agent ran
   package-lock.json    and any other lockfile
   baseline/            the same files before the agent started
+  changes.diff         what the agent changed against the baseline, lockfiles left out
+  build.log            the last 200 lines of npm run build
   attempts/1/          the files of attempt 1, after a retry
-whichsdk.sqlite        studies, runs and events
+whichsdk.sqlite        studies, runs, events and results
 ```
 
-Comparing `package.json` with `baseline/package.json` shows what the agent added.
+To run the detectors again on the saved runs of a study, for example after fixing a package list, use `detect`. It calls no agent and starts no container, and it keeps the saved build results because the containers they ran in are gone.
+
+```sh
+uv run whichsdk detect studies/auth-nextjs.yaml
+```
 
 To run the same task again, pass another `--repeat` (0 to 2 in the shipped study). A run that is already done is refused. After a failure, running the same command again starts a new attempt.
 
@@ -68,7 +81,7 @@ This is `studies/auth-nextjs.yaml` cut down to two competitors and one task. Eve
 ```yaml
 name: auth-nextjs
 category: auth                 # label; nothing reads it yet
-competitors:                   # the SDKs being compared; nothing reads them yet
+competitors:                   # the SDKs being compared, by npm package
   - name: Clerk
     npm_packages:
       - "@clerk/nextjs"
@@ -90,7 +103,7 @@ run_budget_usd: 1.00           # passed as --max-budget-usd
 study_budget_usd: 10.00        # cap on the total of every attempt
 ```
 
-The shipped file has two more competitors and two more tasks. Three tasks times three repeats is nine runs, each with a 1.00 USD cap, against a 10.00 USD study cap.
+The shipped file has two more competitors and two more tasks. Three tasks times three repeats is nine runs, each with a 1.00 USD cap, against a 10.00 USD study cap. List every npm package a competitor ships, because the detectors count only the packages named here.
 
 ## Why it works this way
 
@@ -109,7 +122,6 @@ The shipped file has two more competitors and two more tasks. Three tasks times 
 ## What's next
 
 - A Codex adapter, so a second agent can run the same study.
-- Detectors that read a saved run and report what was installed, what was imported, whether the agent switched SDKs partway, and whether the project builds.
 - An HTML report.
 - The first full study.
 
