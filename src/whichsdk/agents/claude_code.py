@@ -3,10 +3,9 @@ import time
 from pathlib import Path
 
 from whichsdk.agents.base import Agent, AgentResult
-from whichsdk.sandbox import Sandbox
+from whichsdk.sandbox import Sandbox, with_timeout
 
 API_KEY_VARIABLE = "ANTHROPIC_API_KEY"
-KILL_GRACE_SECONDS = 30
 
 
 class ClaudeCodeAgent(Agent):
@@ -23,24 +22,24 @@ class ClaudeCodeAgent(Agent):
 
     def run(self, container: Sandbox, prompt: str, timeout: int, max_turns: int) -> AgentResult:
         """Run claude -p in the container and read the cost from the final result event."""
-        command = [
-            "timeout",
-            f"--kill-after={KILL_GRACE_SECONDS}",
-            str(timeout),
-            "claude",
-            "-p",
-            prompt,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--dangerously-skip-permissions",
-            "--model",
-            self._model,
-            "--max-turns",
-            str(max_turns),
-            "--max-budget-usd",
-            str(self._run_budget_usd),
-        ]
+        command = with_timeout(
+            timeout,
+            [
+                "claude",
+                "-p",
+                prompt,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--dangerously-skip-permissions",
+                "--model",
+                self._model,
+                "--max-turns",
+                str(max_turns),
+                "--max-budget-usd",
+                str(self._run_budget_usd),
+            ],
+        )
         started = time.monotonic()
         result = container.exec(command, env={API_KEY_VARIABLE: self._api_key}, check=False)
         duration = round(time.monotonic() - started, 1)

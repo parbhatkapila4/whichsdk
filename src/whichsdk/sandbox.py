@@ -12,6 +12,8 @@ WORKSPACE = PurePosixPath("/workspace")
 SANDBOX_USER = "node"
 SANDBOX_ID = 1000
 GENERATED_DIRS = {"node_modules", ".next"}
+BASELINE_TAG = "baseline"
+KILL_GRACE_SECONDS = 30
 
 
 class SandboxError(Exception):
@@ -48,6 +50,12 @@ class Sandbox:
             if name in present:
                 _docker("cp", f"{self.name}:{WORKSPACE / name}", str(directory / name))
 
+    def changes_since_baseline(self, exclude: Iterable[str]) -> str:
+        """Return the workspace's diff against the baseline commit, without the named files."""
+        self.exec(["git", "add", "-A"])
+        left_out = [f":(exclude){name}" for name in exclude]
+        return self.exec(["git", "diff", "--cached", BASELINE_TAG, "--", ".", *left_out]).output
+
 
 @contextmanager
 def start_sandbox(name: str, starter: Path) -> Iterator[Sandbox]:
@@ -61,6 +69,11 @@ def start_sandbox(name: str, starter: Path) -> Iterator[Sandbox]:
         yield sandbox
     finally:
         _remove_container(name)
+
+
+def with_timeout(seconds: int, command: Sequence[str]) -> list[str]:
+    """Wrap a command so that it is killed once it has run for the given number of seconds."""
+    return ["timeout", f"--kill-after={KILL_GRACE_SECONDS}", str(seconds), *command]
 
 
 def _remove_container(name: str) -> None:
@@ -89,6 +102,7 @@ def _commit_baseline(sandbox: Sandbox) -> None:
         ["git", "config", "user.email", "whichsdk@localhost"],
         ["git", "add", "-A"],
         ["git", "commit", "-q", "-m", "baseline"],
+        ["git", "tag", BASELINE_TAG],
     ):
         sandbox.exec(command)
 
