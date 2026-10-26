@@ -1,0 +1,12 @@
+{
+  "name": "fixture",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "kleur": "^4.1.5",
+    "ms": "^2.1.3"
+  },
+  "devDependencies": {
+    "@types/ms": "^2.1.0"
+  }
+}

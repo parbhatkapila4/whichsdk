@@ -45,6 +45,21 @@ def test_loads_a_valid_study(tmp_path: Path) -> None:
     assert (spec.run_budget_usd, spec.study_budget_usd) == (1.0, 10.0)
 
 
+def test_each_competitor_package_maps_to_the_competitor_that_ships_it(tmp_path: Path) -> None:
+    competitors = [
+        {"name": "Clerk", "npm_packages": ["@clerk/nextjs", "@clerk/backend"]},
+        {"name": "Better Auth", "npm_packages": ["better-auth"]},
+    ]
+
+    spec = load_study(write_study(tmp_path, {**VALID, "competitors": competitors}))
+
+    assert spec.package_owners() == {
+        "@clerk/nextjs": "Clerk",
+        "@clerk/backend": "Clerk",
+        "better-auth": "Better Auth",
+    }
+
+
 def test_each_agent_carries_its_model(tmp_path: Path) -> None:
     agents = [
         {"name": "claude_code", "model": "claude-sonnet-5-5"},
