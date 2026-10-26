@@ -2,13 +2,27 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from whichsdk.detect.build import BuildResult
+from whichsdk.detect.transcript import Switch
+from whichsdk.detect.verdict import Detection
 from whichsdk.store import Run, Spend, Store
 
 RUN_ID = "demo-t0-claude_code-r0"
+PICKED = Detection(
+    verdict="picked",
+    picked="Better Auth",
+    added={"better-auth": "Better Auth", "zod": None},
+    removed={"next-auth": "Auth.js"},
+    imported={"better-auth": "Better Auth"},
+    switches=[Switch("Auth.js", "Better Auth")],
+    searched=True,
+)
+UNDETERMINED = Detection("undetermined", None, {}, {}, {}, [], False)
 
 
 @pytest.fixture
@@ -255,3 +269,120 @@ def test_events_belong_to_an_attempt_and_keep_their_order(store: Store, db_path:
         (RUN_ID, 2, "run_error"),
     ]
     assert json.loads(str(rows[0][3])) == {"prompt": "add login", "max_turns": 60}
+
+
+def test_results_keep_the_verdict_and_every_finding(store: Store, db_path: Path) -> None:
+    log = Path("runs") / RUN_ID / "build.log"
+
+    store.save_results(next_attempt(store), PICKED, BuildResult(True, log))
+
+    [row] = query(
+        db_path,
+        "SELECT run_id, attempt, verdict, picked_competitor, searched, build_passed, "
+        "build_log_path FROM results",
+    )
+    assert row == (RUN_ID, 1, "picked", "Better Auth", 1, 1, f"runs/{RUN_ID}/build.log")
+    [(added, removed, imported, switches)] = query(
+        db_path, "SELECT added, removed, imported, switches FROM results"
+    )
+    assert json.loads(str(added)) == {"better-auth": "Better Auth", "zod": None}
+    assert json.loads(str(removed)) == {"next-auth": "Auth.js"}
+    assert json.loads(str(imported)) == {"better-auth": "Better Auth"}
+    assert json.loads(str(switches)) == [
+        {"from_competitor": "Auth.js", "to_competitor": "Better Auth"}
+    ]
+
+
+def test_saving_results_again_replaces_them(store: Store, db_path: Path) -> None:
+    run = next_attempt(store)
+    store.save_results(run, PICKED, BuildResult(False, Path("runs") / RUN_ID / "build.log"))
+
+    store.save_results(run, UNDETERMINED, None)
+
+    rows = query(
+        db_path,
+        "SELECT verdict, picked_competitor, searched, build_passed, build_log_path FROM results",
+    )
+    assert rows == [("undetermined", None, 0, None, None)]
+
+
+def test_every_attempt_has_its_own_results(store: Store, db_path: Path) -> None:
+    first = next_attempt(store)
+    run_agent(store, first, exit_code=1, cost=0.1)
+    second = next_attempt(store)
+
+    store.save_results(first, PICKED, None)
+    store.save_results(second, UNDETERMINED, None)
+
+    rows = query(db_path, "SELECT attempt, verdict FROM results ORDER BY attempt")
+    assert rows == [(1, "picked"), (2, "undetermined")]
+
+
+def test_results_need_an_attempt_that_exists(store: Store) -> None:
+    ghost = replace(next_attempt(store), id="ghost")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.save_results(ghost, PICKED, None)
+
+
+def test_a_verdict_other_than_the_four_is_refused(store: Store) -> None:
+    none_at_all = replace(PICKED, verdict="none")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        store.save_results(next_attempt(store), none_at_all, None)
+
+
+def test_an_older_database_gets_the_results_table_when_it_is_opened(db_path: Path) -> None:
+    with closing(Store(db_path)):
+        pass
+    with closing(sqlite3.connect(db_path)) as db:
+        db.execute("DROP TABLE results")
+
+    with closing(Store(db_path)):
+        pass
+
+    assert query(db_path, "SELECT COUNT(*) FROM results") == [(0,)]
+
+
+def test_the_build_outcome_is_the_latest_build_event_of_the_attempt(store: Store) -> None:
+    first = next_attempt(store)
+    run_agent(store, first, exit_code=1, cost=0.1)
+    second = next_attempt(store)
+    assert store.build_passed(first) is None
+
+    store.add_event(first, "build_finished", {"passed": False})
+    store.add_event(first, "build_finished", {"passed": True})
+
+    assert store.build_passed(first) is True
+    assert store.build_passed(second) is None
+
+
+def test_moving_a_build_log_updates_only_results_that_have_one(store: Store, db_path: Path) -> None:
+    first = next_attempt(store)
+    run_agent(store, first, exit_code=1, cost=0.1)
+    second = next_attempt(store)
+    store.save_results(first, PICKED, BuildResult(True, Path("runs") / RUN_ID / "build.log"))
+    store.save_results(second, UNDETERMINED, None)
+    moved = Path("runs") / RUN_ID / "attempts" / "1" / "build.log"
+
+    store.move_build_log(RUN_ID, 1, moved)
+    store.move_build_log(RUN_ID, 2, moved)
+
+    rows = query(db_path, "SELECT attempt, build_log_path FROM results ORDER BY attempt")
+    assert rows == [(1, f"runs/{RUN_ID}/attempts/1/build.log"), (2, None)]
+
+
+def test_a_study_lists_its_attempts_in_run_and_attempt_order(store: Store) -> None:
+    next_attempt(store, repeat=1)
+    run_agent(store, next_attempt(store, repeat=0), exit_code=1, cost=0.1)
+    next_attempt(store, repeat=0)
+    store.save_study("other", "name: other")
+    store.next_attempt("other", 0, "claude_code", 0)
+
+    attempts = store.study_attempts("demo")
+
+    assert [(run.id, run.attempt) for run in attempts] == [
+        ("demo-t0-claude_code-r0", 1),
+        ("demo-t0-claude_code-r0", 2),
+        ("demo-t0-claude_code-r1", 1),
+    ]

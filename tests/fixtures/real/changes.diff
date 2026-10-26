@@ -1,0 +1,365 @@
+diff --git a/.gitignore b/.gitignore
+index 4b80535..63a59a8 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -2,3 +2,4 @@ node_modules
+ .next
+ next-env.d.ts
+ *.tsbuildinfo
++data
+diff --git a/app/actions.ts b/app/actions.ts
+new file mode 100644
+index 0000000..73b7252
+--- /dev/null
++++ b/app/actions.ts
+@@ -0,0 +1,59 @@
++"use server";
++
++import { randomUUID } from "node:crypto";
++import { redirect } from "next/navigation";
++import { read, transaction } from "@/lib/db";
++import { hashPassword, verifyPassword } from "@/lib/password";
++import { createSession, destroySession } from "@/lib/session";
++
++export type FormState = { error?: string } | undefined;
++
++const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++const MIN_PASSWORD = 8;
++const MAX_PASSWORD = 128; // bounds scrypt work per request
++
++// Used to spend the same time on unknown emails as on wrong passwords.
++const DUMMY_HASH = hashPassword("dummy-password");
++
++function credentials(formData: FormData) {
++  const email = String(formData.get("email") ?? "").trim().toLowerCase();
++  const password = String(formData.get("password") ?? "");
++  return { email, password };
++}
++
++export async function signup(_: FormState, formData: FormData): Promise<FormState> {
++  const { email, password } = credentials(formData);
++  if (!EMAIL_RE.test(email) || email.length > 254) return { error: "Enter a valid email address." };
++  if (password.length < MIN_PASSWORD) return { error: `Password must be at least ${MIN_PASSWORD} characters.` };
++  if (password.length > MAX_PASSWORD) return { error: `Password must be at most ${MAX_PASSWORD} characters.` };
++
++  const passwordHash = await hashPassword(password);
++  const id = randomUUID();
++  const created = await transaction((data) => {
++    if (data.users.some((u) => u.email === email)) return false;
++    data.users.push({ id, email, passwordHash });
++    return true;
++  });
++  if (!created) return { error: "An account with that email already exists." };
++
++  await createSession(id);
++  redirect("/dashboard");
++}
++
++export async function login(_: FormState, formData: FormData): Promise<FormState> {
++  const { email, password } = credentials(formData);
++  const invalid = { error: "Invalid email or password." };
++  if (password.length > MAX_PASSWORD) return invalid;
++
++  const user = await read((data) => data.users.find((u) => u.email === email));
++  const ok = await verifyPassword(password, user ? user.passwordHash : await DUMMY_HASH);
++  if (!user || !ok) return invalid;
++
++  await createSession(user.id);
++  redirect("/dashboard");
++}
++
++export async function logout() {
++  await destroySession();
++  redirect("/login");
++}
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+new file mode 100644
+index 0000000..f3a6c56
+--- /dev/null
++++ b/app/dashboard/page.tsx
+@@ -0,0 +1,15 @@
++import { logout } from "@/app/actions";
++import { requireUser } from "@/lib/session";
++
++export default async function Dashboard() {
++  const user = await requireUser();
++  return (
++    <main>
++      <h1>Dashboard</h1>
++      <p>Signed in as {user.email}</p>
++      <form action={logout}>
++        <button>Log out</button>
++      </form>
++    </main>
++  );
++}
+diff --git a/app/login/page.tsx b/app/login/page.tsx
+new file mode 100644
+index 0000000..3561e93
+--- /dev/null
++++ b/app/login/page.tsx
+@@ -0,0 +1,18 @@
++import Link from "next/link";
++import { redirect } from "next/navigation";
++import { login } from "@/app/actions";
++import { AuthForm } from "@/components/auth-form";
++import { getUser } from "@/lib/session";
++
++export default async function LoginPage() {
++  if (await getUser()) redirect("/dashboard");
++  return (
++    <main>
++      <h1>Log in</h1>
++      <AuthForm action={login} submitLabel="Log in" />
++      <p>
++        No account? <Link href="/signup">Sign up</Link>
++      </p>
++    </main>
++  );
++}
+diff --git a/app/page.tsx b/app/page.tsx
+index b2b6a31..224d86c 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -1,8 +1,27 @@
+-export default function Home() {
++import Link from "next/link";
++import { logout } from "@/app/actions";
++import { getUser } from "@/lib/session";
++
++export default async function Home() {
++  const user = await getUser();
+   return (
+     <main>
+       <h1>Starter</h1>
+       <p>A minimal Next.js app.</p>
++      {user ? (
++        <>
++          <p>
++            <Link href="/dashboard">Dashboard</Link>
++          </p>
++          <form action={logout}>
++            <button>Log out</button>
++          </form>
++        </>
++      ) : (
++        <p>
++          <Link href="/login">Log in</Link> or <Link href="/signup">Sign up</Link>
++        </p>
++      )}
+     </main>
+   );
+ }
+diff --git a/app/signup/page.tsx b/app/signup/page.tsx
+new file mode 100644
+index 0000000..b18b4a8
+--- /dev/null
++++ b/app/signup/page.tsx
+@@ -0,0 +1,18 @@
++import Link from "next/link";
++import { redirect } from "next/navigation";
++import { signup } from "@/app/actions";
++import { AuthForm } from "@/components/auth-form";
++import { getUser } from "@/lib/session";
++
++export default async function SignupPage() {
++  if (await getUser()) redirect("/dashboard");
++  return (
++    <main>
++      <h1>Sign up</h1>
++      <AuthForm action={signup} submitLabel="Create account" newPassword />
++      <p>
++        Already have an account? <Link href="/login">Log in</Link>
++      </p>
++    </main>
++  );
++}
+diff --git a/components/auth-form.tsx b/components/auth-form.tsx
+new file mode 100644
+index 0000000..89e1f57
+--- /dev/null
++++ b/components/auth-form.tsx
+@@ -0,0 +1,39 @@
++"use client";
++
++import { useActionState } from "react";
++import type { FormState } from "@/app/actions";
++
++export function AuthForm({
++  action,
++  submitLabel,
++  newPassword,
++}: {
++  action: (state: FormState, formData: FormData) => Promise<FormState>;
++  submitLabel: string;
++  newPassword?: boolean;
++}) {
++  const [state, formAction, pending] = useActionState(action, undefined);
++  return (
++    <form action={formAction}>
++      <p>
++        <label>
++          Email <input name="email" type="email" autoComplete="email" required />
++        </label>
++      </p>
++      <p>
++        <label>
++          Password{" "}
++          <input
++            name="password"
++            type="password"
++            autoComplete={newPassword ? "new-password" : "current-password"}
++            minLength={newPassword ? 8 : undefined}
++            required
++          />
++        </label>
++      </p>
++      {state?.error && <p role="alert">{state.error}</p>}
++      <button disabled={pending}>{submitLabel}</button>
++    </form>
++  );
++}
+diff --git a/lib/db.ts b/lib/db.ts
+new file mode 100644
+index 0000000..2e9d3fc
+--- /dev/null
++++ b/lib/db.ts
+@@ -0,0 +1,46 @@
++import "server-only";
++import { promises as fs } from "node:fs";
++import path from "node:path";
++
++// Minimal JSON-file store so the starter has no database dependency.
++// Swap this module for a real database before deploying anywhere serious.
++export type User = { id: string; email: string; passwordHash: string };
++export type Session = { tokenHash: string; userId: string; expiresAt: number };
++type Data = { users: User[]; sessions: Session[] };
++
++const FILE = path.join(process.cwd(), "data", "db.json");
++
++// Serialize read-modify-write cycles so concurrent requests don't clobber each other.
++let queue: Promise<unknown> = Promise.resolve();
++
++async function load(): Promise<Data> {
++  try {
++    return JSON.parse(await fs.readFile(FILE, "utf8"));
++  } catch (e) {
++    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { users: [], sessions: [] };
++    throw e;
++  }
++}
++
++async function save(data: Data) {
++  await fs.mkdir(path.dirname(FILE), { recursive: true });
++  const tmp = `${FILE}.${process.pid}.tmp`;
++  await fs.writeFile(tmp, JSON.stringify(data), { mode: 0o600 });
++  await fs.rename(tmp, FILE);
++}
++
++export function transaction<T>(fn: (data: Data) => T | Promise<T>): Promise<T> {
++  const run = queue.then(async () => {
++    const data = await load();
++    const result = await fn(data);
++    await save(data);
++    return result;
++  });
++  queue = run.catch(() => {});
++  return run;
++}
++
++export async function read<T>(fn: (data: Data) => T): Promise<T> {
++  await queue;
++  return fn(await load());
++}
+diff --git a/lib/password.ts b/lib/password.ts
+new file mode 100644
+index 0000000..f3db089
+--- /dev/null
++++ b/lib/password.ts
+@@ -0,0 +1,21 @@
++import "server-only";
++import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
++
++function derive(password: string, salt: Buffer): Promise<Buffer> {
++  return new Promise((resolve, reject) =>
++    scrypt(password, salt, 64, (err, key) => (err ? reject(err) : resolve(key))),
++  );
++}
++
++export async function hashPassword(password: string): Promise<string> {
++  const salt = randomBytes(16);
++  const key = await derive(password, salt);
++  return `${salt.toString("hex")}:${key.toString("hex")}`;
++}
++
++export async function verifyPassword(password: string, stored: string): Promise<boolean> {
++  const [saltHex, keyHex] = stored.split(":");
++  const expected = Buffer.from(keyHex, "hex");
++  const actual = await derive(password, Buffer.from(saltHex, "hex"));
++  return expected.length === actual.length && timingSafeEqual(expected, actual);
++}
+diff --git a/lib/session.ts b/lib/session.ts
+new file mode 100644
+index 0000000..9fefe93
+--- /dev/null
++++ b/lib/session.ts
+@@ -0,0 +1,59 @@
++import "server-only";
++import { createHash, randomBytes } from "node:crypto";
++import { cache } from "react";
++import { cookies } from "next/headers";
++import { redirect } from "next/navigation";
++import { read, transaction } from "./db";
++
++const COOKIE = "session";
++const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
++
++// Only a hash of the token is stored, so a leaked data file can't be used to hijack sessions.
++const hash = (token: string) => createHash("sha256").update(token).digest("hex");
++
++export async function createSession(userId: string) {
++  const token = randomBytes(32).toString("base64url");
++  const expiresAt = Date.now() + MAX_AGE_MS;
++  await transaction((data) => {
++    const now = Date.now();
++    data.sessions = data.sessions.filter((s) => s.expiresAt > now);
++    data.sessions.push({ tokenHash: hash(token), userId, expiresAt });
++  });
++  (await cookies()).set(COOKIE, token, {
++    httpOnly: true,
++    secure: process.env.NODE_ENV === "production",
++    sameSite: "lax",
++    path: "/",
++    expires: expiresAt,
++  });
++}
++
++export async function destroySession() {
++  const jar = await cookies();
++  const token = jar.get(COOKIE)?.value;
++  if (token) {
++    await transaction((data) => {
++      data.sessions = data.sessions.filter((s) => s.tokenHash !== hash(token));
++    });
++  }
++  jar.delete(COOKIE);
++}
++
++// Returns the logged-in user or null. Memoized per request.
++export const getUser = cache(async () => {
++  const token = (await cookies()).get(COOKIE)?.value;
++  if (!token) return null;
++  const tokenHash = hash(token);
++  return read((data) => {
++    const session = data.sessions.find((s) => s.tokenHash === tokenHash);
++    if (!session || session.expiresAt <= Date.now()) return null;
++    const user = data.users.find((u) => u.id === session.userId);
++    return user ? { id: user.id, email: user.email } : null;
++  });
++});
++
++export async function requireUser() {
++  const user = await getUser();
++  if (!user) redirect("/login");
++  return user;
++}

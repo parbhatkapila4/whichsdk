@@ -9,7 +9,12 @@ from pydantic import ValidationError
 
 from whichsdk.agents.base import Agent, AgentResult
 from whichsdk.agents.claude_code import ClaudeCodeAgent
-from whichsdk.sandbox import IMAGE, SandboxError, start_sandbox
+from whichsdk.detect.build import BuildResult, run_build
+from whichsdk.detect.deps import compare_dependencies
+from whichsdk.detect.imports import find_imports
+from whichsdk.detect.transcript import read_transcript
+from whichsdk.detect.verdict import Detection, judge
+from whichsdk.sandbox import IMAGE, Sandbox, SandboxError, start_sandbox
 from whichsdk.spec import NAME_PATTERN, AgentSpec, StudySpec, load_study
 from whichsdk.store import Run, Store
 
@@ -18,15 +23,12 @@ ENV_FILE = Path(".env")
 RUNS_DIR = Path("runs")
 STUDIES_DIR = Path("studies")
 ATTEMPTS_DIR = "attempts"
+BASELINE_DIR = "baseline"
 TRANSCRIPT_NAME = "transcript.jsonl"
-PACKAGE_FILES = (
-    "package.json",
-    "package-lock.json",
-    "pnpm-lock.yaml",
-    "yarn.lock",
-    "bun.lock",
-    "bun.lockb",
-)
+CHANGES_NAME = "changes.diff"
+BUILD_LOG_NAME = "build.log"
+LOCKFILES = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb")
+PACKAGE_FILES = ("package.json", *LOCKFILES)
 
 IMAGE_BUILD_HINT = (
     f"Build the sandbox image first: docker build -f docker/Dockerfile -t {IMAGE} "
@@ -99,6 +101,26 @@ def run_one(
         _execute(store, spec, agent_spec, run, agent)
 
 
+@app.command()
+def detect(
+    study_file: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+) -> None:
+    """Re-run the detectors on a study's saved runs without calling any agent.
+
+    The saved build results are kept, because the container they ran in is gone.
+    """
+    spec = _load_spec(study_file)
+    if not DB_PATH.is_file():
+        _fail(f"There is no {DB_PATH} here; run this from the directory the study was run in.")
+    with closing(Store(DB_PATH)) as store:
+        lines = [
+            _detect_saved(store, spec, run, Path(run.transcript_path).parent)
+            for run in store.study_attempts(spec.name)
+            if run.transcript_path
+        ]
+    typer.echo("\n".join(lines) or f"No saved runs of {spec.name} to detect.")
+
+
 def _load_spec(path: Path) -> StudySpec:
     try:
         return load_study(path)
@@ -154,13 +176,15 @@ def _execute(store: Store, spec: StudySpec, agent_spec: AgentSpec, run: Run, age
     )
     typer.echo(f"Starting attempt {run.attempt} of {run.id} for up to {spec.timeout_seconds}s.")
     try:
-        result = _run_agent(store, spec, run, agent, prompt, run_dir)
+        result, build = _run_agent(store, spec, run, agent, prompt, run_dir)
     except SandboxError as error:
         store.add_event(run, "run_error", {"message": str(error)})
         store.finish_run(run, "failed")
         _fail(f"{run.id} failed: {error}")
     store.finish_run(run, "done" if result.exit_code == 0 else "failed")
-    _report(store.get_run(run.id, run.attempt))
+    detection = _detect_attempt(spec, run_dir)
+    store.save_results(run, detection, build)
+    _report(store.get_run(run.id, run.attempt), detection, build)
 
 
 def _archive_previous_attempt(store: Store, run: Run, run_dir: Path) -> None:
@@ -172,20 +196,24 @@ def _archive_previous_attempt(store: Store, run: Run, run_dir: Path) -> None:
     for path in files:
         path.rename(archive / path.name)
     store.move_transcript(run.id, run.attempt - 1, archive / TRANSCRIPT_NAME)
+    store.move_build_log(run.id, run.attempt - 1, archive / BUILD_LOG_NAME)
 
 
 def _run_agent(
     store: Store, spec: StudySpec, run: Run, agent: Agent, prompt: str, run_dir: Path
-) -> AgentResult:
+) -> tuple[AgentResult, BuildResult]:
     with start_sandbox(f"whichsdk-{run.id}", spec.starter_template) as box:
         version = agent.version(box)
-        box.copy_out(PACKAGE_FILES, run_dir / "baseline")
+        box.copy_out(PACKAGE_FILES, run_dir / BASELINE_DIR)
         store.begin_agent(run, version)
         result = agent.run(box, prompt, spec.timeout_seconds, spec.max_turns)
         transcript = _save_transcript(run_dir, result)
         store.record_result(run, result.exit_code, result.cost_usd, result.duration_s, transcript)
         box.copy_out(PACKAGE_FILES, run_dir)
-    return result
+        _save_changes(box, run_dir)
+        build = run_build(box, run_dir / BUILD_LOG_NAME)
+        store.add_event(run, "build_finished", {"passed": build.passed})
+    return result, build
 
 
 def _save_transcript(run_dir: Path, result: AgentResult) -> Path:
@@ -196,13 +224,44 @@ def _save_transcript(run_dir: Path, result: AgentResult) -> Path:
     return path
 
 
-def _report(run: Run) -> None:
+def _save_changes(box: Sandbox, run_dir: Path) -> None:
+    changes = box.changes_since_baseline(LOCKFILES)
+    (run_dir / CHANGES_NAME).write_text(changes, encoding="utf-8", newline="\n")
+
+
+def _detect_attempt(spec: StudySpec, attempt_dir: Path) -> Detection:
+    owners = spec.package_owners()
+    changes = compare_dependencies(attempt_dir / BASELINE_DIR, attempt_dir, owners)
+    imported = find_imports(attempt_dir / CHANGES_NAME, owners)
+    findings = read_transcript(attempt_dir / TRANSCRIPT_NAME, owners)
+    return judge(changes, imported, findings)
+
+
+def _detect_saved(store: Store, spec: StudySpec, run: Run, attempt_dir: Path) -> str:
+    label = f"{run.id} attempt {run.attempt}"
+    if not (attempt_dir / CHANGES_NAME).is_file():
+        return f"{label}: skipped, no {CHANGES_NAME} was saved"
+    detection = _detect_attempt(spec, attempt_dir)
+    passed = store.build_passed(run)
+    build = None if passed is None else BuildResult(passed, attempt_dir / BUILD_LOG_NAME)
+    store.save_results(run, detection, build)
+    return f"{label}: {_describe(detection)}"
+
+
+def _describe(detection: Detection) -> str:
+    if detection.picked is None:
+        return detection.verdict
+    return f"{detection.verdict} ({detection.picked})"
+
+
+def _report(run: Run, detection: Detection, build: BuildResult) -> None:
     cost = "unknown" if run.cost_usd is None else f"${run.cost_usd:.2f}"
     typer.echo(
         f"{run.id} attempt {run.attempt}: {run.status}, agent exit code {run.exit_code}, "
         f"cost {cost}, {run.duration_s:.0f}s"
     )
-    typer.echo(f"Transcript and package files are in {RUNS_DIR / run.id}")
+    typer.echo(f"Verdict: {_describe(detection)}; build {'passed' if build.passed else 'failed'}")
+    typer.echo(f"Saved to {RUNS_DIR / run.id}")
     if run.status == "failed":
         raise typer.Exit(1)
 

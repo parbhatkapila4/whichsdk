@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
 
@@ -10,7 +10,7 @@ from typer.testing import CliRunner, Result
 
 from whichsdk import cli
 from whichsdk.agents.base import Agent, AgentResult
-from whichsdk.sandbox import Sandbox, SandboxError
+from whichsdk.sandbox import ExecResult, Sandbox, SandboxError
 from whichsdk.store import Store
 
 RUN_ID = "demo-t0-claude_code-r0"
@@ -31,18 +31,49 @@ STUDY: dict[str, object] = {
 
 
 class FakeSandbox(Sandbox):
-    def __init__(self, name: str, marker: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        marker: str,
+        build_exit_code: int = 0,
+        calls: list[tuple[str, ...]] | None = None,
+    ) -> None:
         super().__init__(name)
         self._marker = marker
+        self._build_exit_code = build_exit_code
+        self._calls = [] if calls is None else calls
+
+    def exec(
+        self, args: Sequence[str], env: Mapping[str, str] | None = None, check: bool = True
+    ) -> ExecResult:
+        self._calls.append(("build",))
+        return ExecResult(self._build_exit_code, f"built {self._marker}\n")
 
     def copy_out(self, names: Iterable[str], directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "package.json").write_text(self._marker, encoding="utf-8")
 
+    def changes_since_baseline(self, exclude: Iterable[str]) -> str:
+        self._calls.append(("diff", *exclude))
+        return f"diff of {self._marker}\n"
+
 
 class UncopyableSandbox(FakeSandbox):
     def copy_out(self, names: Iterable[str], directory: Path) -> None:
         raise SandboxError("docker exited 1: it broke")
+
+
+class DetectingSandbox(FakeSandbox):
+    def copy_out(self, names: Iterable[str], directory: Path) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        dependencies = {"next": "16.4.3"}
+        if directory.name != "baseline":
+            dependencies["better-auth"] = "^1.3.4"
+        package = json.dumps({"dependencies": dependencies})
+        (directory / "package.json").write_text(package, encoding="utf-8")
+
+    def changes_since_baseline(self, exclude: Iterable[str]) -> str:
+        return '+++ b/lib/auth.ts\n+import { betterAuth } from "better-auth";\n'
 
 
 class FakeAgent(Agent):
@@ -66,6 +97,8 @@ class Harness:
         self.runs: list[tuple[str, int, int]] = []
         self.agents_built: list[tuple[str, float]] = []
         self.sandboxes: list[str] = []
+        self.calls: list[tuple[str, ...]] = []
+        self.build_exit_code = 0
 
     def make_agent(self, env_file: Path, model: str, run_budget_usd: float) -> Agent:
         self.agents_built.append((model, run_budget_usd))
@@ -74,7 +107,8 @@ class Harness:
     @contextmanager
     def start_sandbox(self, name: str, starter: Path) -> Iterator[Sandbox]:
         self.sandboxes.append(name)
-        yield FakeSandbox(name, f"sandbox {len(self.sandboxes)}")
+        marker = f"sandbox {len(self.sandboxes)}"
+        yield FakeSandbox(name, marker, self.build_exit_code, self.calls)
 
     def run_one(self, *args: str) -> Result:
         return CliRunner().invoke(cli.app, ["run-one", "study.yaml", "--task", "0", *args])
@@ -86,6 +120,15 @@ def write_study(**overrides: object) -> None:
 
 def agent_result(exit_code: int, cost: float | None, transcript: str) -> AgentResult:
     return AgentResult(exit_code, [transcript], cost, 12.0)
+
+
+def bash(call_id: str, command: str) -> list[str]:
+    use = {"type": "tool_use", "id": call_id, "name": "Bash", "input": {"command": command}}
+    done = {"type": "tool_result", "tool_use_id": call_id, "content": "ok", "is_error": False}
+    return [
+        json.dumps({"type": "assistant", "message": {"content": [use]}}),
+        json.dumps({"type": "user", "message": {"content": [done]}}),
+    ]
 
 
 def db(sql: str) -> list[tuple[object, ...]]:
@@ -118,9 +161,16 @@ def test_a_retry_moves_the_earlier_attempt_aside_and_keeps_both_costs(harness: H
     assert (archived / "transcript.jsonl").read_text(encoding="utf-8") == "first\n"
     assert (archived / "package.json").read_text(encoding="utf-8") == "sandbox 1"
     assert (archived / "baseline" / "package.json").read_text(encoding="utf-8") == "sandbox 1"
+    assert (run_dir / "changes.diff").read_text(encoding="utf-8") == "diff of sandbox 2\n"
+    assert (archived / "changes.diff").read_text(encoding="utf-8") == "diff of sandbox 1\n"
+    assert (archived / "build.log").read_text(encoding="utf-8") == "built sandbox 1\n"
     assert db("SELECT attempt, status, cost_usd, transcript_path FROM runs ORDER BY attempt") == [
         (1, "failed", 0.4, f"runs/{RUN_ID}/attempts/1/transcript.jsonl"),
         (2, "done", 0.3, f"runs/{RUN_ID}/transcript.jsonl"),
+    ]
+    assert db("SELECT attempt, build_log_path FROM results ORDER BY attempt") == [
+        (1, f"runs/{RUN_ID}/attempts/1/build.log"),
+        (2, f"runs/{RUN_ID}/build.log"),
     ]
 
 
@@ -252,6 +302,113 @@ def test_a_sandbox_that_fails_before_the_agent_costs_nothing(
 
     assert retry.exit_code == 0, retry.output
     assert "$0.00 of $3.00 spent on demo; this run is capped at $1.00." in retry.output
+
+
+def test_the_changes_and_the_build_log_are_saved_next_to_the_package_files(
+    harness: Harness,
+) -> None:
+    harness.results.append(agent_result(0, 0.2, "ok"))
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 0, outcome.output
+    run_dir = Path("runs") / RUN_ID
+    assert (run_dir / "changes.diff").read_text(encoding="utf-8") == "diff of sandbox 1\n"
+    assert (run_dir / "build.log").read_text(encoding="utf-8") == "built sandbox 1\n"
+    assert db("SELECT payload FROM events WHERE kind = 'build_finished'") == [('{"passed": true}',)]
+    assert db("SELECT build_passed, build_log_path FROM results") == [
+        (1, f"runs/{RUN_ID}/build.log")
+    ]
+    assert "Verdict: undetermined; build passed" in outcome.output
+
+
+def test_the_diff_is_taken_before_the_build_can_change_any_files(harness: Harness) -> None:
+    harness.results.append(agent_result(0, 0.2, "ok"))
+
+    harness.run_one()
+
+    assert [call[0] for call in harness.calls] == ["diff", "build"]
+
+
+def test_the_diff_leaves_the_lockfiles_out(harness: Harness) -> None:
+    harness.results.append(agent_result(0, 0.2, "ok"))
+
+    harness.run_one()
+
+    assert harness.calls[0] == ("diff", *cli.LOCKFILES)
+    assert "package.json" not in harness.calls[0]
+
+
+def test_a_failing_build_is_recorded_and_does_not_fail_the_run(harness: Harness) -> None:
+    harness.build_exit_code = 1
+    harness.results.append(agent_result(0, 0.2, "ok"))
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 0, outcome.output
+    assert db("SELECT status FROM runs") == [("done",)]
+    assert db("SELECT payload FROM events WHERE kind = 'build_finished'") == [
+        ('{"passed": false}',)
+    ]
+    assert db("SELECT build_passed FROM results") == [(0,)]
+    assert (Path("runs") / RUN_ID / "build.log").is_file()
+    assert "build failed" in outcome.output
+
+
+def test_the_verdict_is_decided_from_what_the_run_saved(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    competitors = [
+        {"name": "Auth.js", "npm_packages": ["next-auth"]},
+        {"name": "Better Auth", "npm_packages": ["better-auth"]},
+    ]
+    write_study(competitors=competitors)
+
+    @contextmanager
+    def detecting(name: str, starter: Path) -> Iterator[Sandbox]:
+        yield DetectingSandbox(name, "sandbox")
+
+    monkeypatch.setattr(cli, "start_sandbox", detecting)
+    transcript = [
+        *bash("a", "npm i next-auth"),
+        *bash("b", "npm rm next-auth"),
+        *bash("c", "npm i better-auth"),
+    ]
+    harness.results.append(AgentResult(0, transcript, 0.2, 12.0))
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 0, outcome.output
+    assert "Verdict: picked (Better Auth); build passed" in outcome.output
+    assert db(
+        "SELECT verdict, picked_competitor, added, imported, switches, searched FROM results"
+    ) == [
+        (
+            "picked",
+            "Better Auth",
+            '{"better-auth": "Better Auth"}',
+            '{"better-auth": "Better Auth"}',
+            '[{"from_competitor": "Auth.js", "to_competitor": "Better Auth"}]',
+            0,
+        )
+    ]
+
+
+def test_a_detector_that_breaks_never_loses_the_run(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(spec: object, attempt_dir: Path) -> None:
+        raise RuntimeError("a detector bug")
+
+    monkeypatch.setattr(cli, "_detect_attempt", broken)
+    harness.results.append(agent_result(0, 0.2, "ok"))
+
+    outcome = harness.run_one()
+
+    assert isinstance(outcome.exception, RuntimeError)
+    assert db("SELECT status, cost_usd FROM runs") == [("done", 0.2)]
+    assert db("SELECT COUNT(*) FROM results") == [(0,)]
+    assert (Path("runs") / RUN_ID / "transcript.jsonl").is_file()
 
 
 def test_the_agent_is_configured_from_the_spec_and_the_model_and_version_are_stored(

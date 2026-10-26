@@ -1,9 +1,12 @@
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
+
+from whichsdk.detect.build import BuildResult
+from whichsdk.detect.verdict import Detection
 
 Status = Literal["pending", "running", "done", "failed"]
 
@@ -39,6 +42,23 @@ CREATE TABLE IF NOT EXISTS events (
     attempt INTEGER NOT NULL,
     kind TEXT NOT NULL,
     payload TEXT NOT NULL,
+    FOREIGN KEY (run_id, attempt) REFERENCES runs (id, attempt)
+);
+
+CREATE TABLE IF NOT EXISTS results (
+    run_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    verdict TEXT NOT NULL
+        CHECK (verdict IN ('picked', 'installed_unused', 'multiple', 'undetermined')),
+    picked_competitor TEXT,
+    added TEXT NOT NULL,
+    removed TEXT NOT NULL,
+    imported TEXT NOT NULL,
+    switches TEXT NOT NULL,
+    searched INTEGER NOT NULL,
+    build_passed INTEGER,
+    build_log_path TEXT,
+    PRIMARY KEY (run_id, attempt),
     FOREIGN KEY (run_id, attempt) REFERENCES runs (id, attempt)
 );
 """
@@ -124,6 +144,13 @@ class Store:
         ).fetchone()
         return Run(**row)
 
+    def study_attempts(self, study: str) -> list[Run]:
+        """Return every attempt of a study, in run id and attempt order."""
+        rows = self._db.execute(
+            "SELECT * FROM runs WHERE study = ? ORDER BY id, attempt", (study,)
+        ).fetchall()
+        return [Run(**row) for row in rows]
+
     def study_spend(self, study: str, unreported_usd: float) -> Spend:
         """Total cost of every attempt, failed ones included.
 
@@ -197,6 +224,46 @@ class Store:
         """Append an event to the attempt's log."""
         with self._db:
             self._insert_event(run.id, run.attempt, kind, payload)
+
+    def build_passed(self, run: Run) -> bool | None:
+        """Return whether the attempt's build passed, or None if no build was recorded."""
+        row = self._db.execute(
+            "SELECT payload FROM events WHERE run_id = ? AND attempt = ? "
+            "AND kind = 'build_finished' ORDER BY rowid DESC LIMIT 1",
+            (run.id, run.attempt),
+        ).fetchone()
+        return None if row is None else json.loads(row["payload"])["passed"]
+
+    def save_results(self, run: Run, detection: Detection, build: BuildResult | None) -> None:
+        """Keep what the detectors found for an attempt, replacing any earlier results."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO results (run_id, attempt, verdict, picked_competitor, "
+                "added, removed, imported, switches, searched, build_passed, build_log_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run.id,
+                    run.attempt,
+                    detection.verdict,
+                    detection.picked,
+                    json.dumps(detection.added),
+                    json.dumps(detection.removed),
+                    json.dumps(detection.imported),
+                    json.dumps([asdict(switch) for switch in detection.switches]),
+                    int(detection.searched),
+                    None if build is None else int(build.passed),
+                    None if build is None else build.log_path.as_posix(),
+                ),
+            )
+
+    def move_build_log(self, run_id: str, attempt: int, log_path: Path) -> None:
+        """Point an attempt's results at the place its build log was moved to."""
+        with self._db:
+            self._db.execute(
+                "UPDATE results SET build_log_path = ? "
+                "WHERE run_id = ? AND attempt = ? AND build_log_path IS NOT NULL",
+                (log_path.as_posix(), run_id, attempt),
+            )
 
     def _latest_attempt(self, run_id: str) -> Run | None:
         row = self._db.execute(
