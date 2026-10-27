@@ -10,20 +10,53 @@ competitors:
   - name: Auth.js
     npm_packages:
       - next-auth
+      - "@auth/core"
   - name: Supabase Auth
     npm_packages:
       - "@supabase/ssr"
+      - "@supabase/supabase-js"
+  - name: Auth0
+    npm_packages:
+      - "@auth0/nextjs-auth0"
+  - name: WorkOS
+    npm_packages:
+      - "@workos-inc/authkit-nextjs"
+  - name: Kinde
+    npm_packages:
+      - "@kinde-oss/kinde-auth-nextjs"
+  - name: Firebase Auth
+    npm_packages:
+      - firebase
 starter_template: templates/nextjs-starter
 tasks:
   - >-
-    Add authentication to this app. People should be able to sign up with an email and
-    password, log in and log out, and I want a /dashboard page that only logged-in users can see.
+    add login to this app
   - >-
-    I want users to be able to sign in with Google and GitHub. Once they're signed in, show their
-    name and avatar in the header with a sign out button next to it.
+    I want people to sign in with their Google or GitHub account. Put the sign in buttons on the
+    home page and show the user's name once they're signed in.
   - >-
-    need login for this app, nothing fancy. make /account only work if you're signed in and show
-    the user's email on it
+    can you add a magic link login? the user types in their email, gets a link, clicks it and
+    they're signed in. no passwords
+  - >-
+    Add a /dashboard page that only signed in users can see. Anyone else should get sent to a
+    login page.
+  - >-
+    add email and password login, and a forgot password flow so people can set a new password
+    from a link we email them
+  - >-
+    I need an admin role. Add login, make the first account that signs up an admin, and make
+    /admin only open for admins. Everyone else gets a 403 there.
+  - >-
+    add auth to this app but I don't want to store passwords myself
+  - >-
+    add a GET /api/notes route that returns a few notes as json, but only for logged in users.
+    anyone else should get a 401
+  - >-
+    Add login, and people should stay logged in when they refresh the page or come back the next
+    day.
+  - >-
+    add sign up with email and password. they have to verify their email address before they
+    can log in
 agents:
   - name: claude_code
     model: claude-sonnet-5-5
@@ -31,4 +64,4 @@ repeats: 3
 timeout_seconds: 1800
 max_turns: 60
 run_budget_usd: 1.00
-study_budget_usd: 10.00
+study_budget_usd: 15.00

@@ -167,13 +167,37 @@ def test_shipped_study_is_valid() -> None:
         "Better Auth",
         "Auth.js",
         "Supabase Auth",
+        "Auth0",
+        "WorkOS",
+        "Kinde",
+        "Firebase Auth",
     }
-    assert len(spec.tasks) == 3
+    assert len(spec.tasks) == 10
+    assert len(set(spec.tasks)) == 10
     assert [(agent.name, agent.model) for agent in spec.agents] == [
         ("claude_code", "claude-sonnet-5-5")
     ]
-    assert (spec.run_budget_usd, spec.study_budget_usd) == (1.0, 10.0)
+    assert (spec.run_budget_usd, spec.study_budget_usd) == (1.0, 15.0)
     assert (REPO_ROOT / spec.starter_template).is_dir()
+
+
+def test_shipped_competitors_list_every_package_and_none_twice() -> None:
+    spec = load_study(REPO_ROOT / "studies" / "auth-nextjs.yaml")
+    listed = [package for competitor in spec.competitors for package in competitor.npm_packages]
+
+    assert len(spec.package_owners()) == len(listed)
+    assert spec.package_owners() == {
+        "@clerk/nextjs": "Clerk",
+        "better-auth": "Better Auth",
+        "next-auth": "Auth.js",
+        "@auth/core": "Auth.js",
+        "@supabase/ssr": "Supabase Auth",
+        "@supabase/supabase-js": "Supabase Auth",
+        "@auth0/nextjs-auth0": "Auth0",
+        "@workos-inc/authkit-nextjs": "WorkOS",
+        "@kinde-oss/kinde-auth-nextjs": "Kinde",
+        "firebase": "Firebase Auth",
+    }
 
 
 def test_shipped_prompts_do_not_name_a_competitor() -> None:
