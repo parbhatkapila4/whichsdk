@@ -19,12 +19,14 @@ Early. Claude Code is the only agent so far, and there is one study: auth for Ne
 5. It saves the raw output to `transcript.jsonl`, copies `package.json` and any lockfile out again next to the baseline copies, saves the code changes against the baseline commit as `changes.diff`, runs `npm run build` and keeps the last 200 lines of its output as `build.log`, then deletes the container.
 6. It runs the detectors on the saved files and records the attempt in SQLite: status, exit code, cost, duration, model, Claude Code version, the verdict with the packages behind it, and the build result.
 
-The detectors compare `package.json` and the lockfile with the baseline, scan `changes.diff` for imports of each competitor's packages, and read the transcript for switches between competitors and for web searches and fetches. A package counts as installed when `package.json` lists it and, if there is a lockfile, the lockfile has it. The verdict is one of four:
+The detectors compare the package files with the baseline, scan `changes.diff` for imports of each competitor's packages and for added code, and read the transcript for install commands, switches between competitors, and web searches and fetches. A package counts as installed when `package.json` lists it and, if there is a lockfile, the lockfile has it. The verdict is one of six:
 
 - `picked`: one competitor's package was added and the new code imports it.
 - `installed_unused`: one competitor's package was added and nothing imports it.
 - `multiple`: more than one competitor's packages were left installed.
-- `undetermined`: no competitor's package was added. It never says "none", because a detector that missed something would look the same.
+- `other`: packages were added and none belongs to a competitor. They are saved with the result, in its `added` column.
+- `no_sdk`: `package.json` and the lockfiles are byte for byte the same as the baseline, the transcript has no command that installs a package by name, no competitor is imported, and the diff adds JavaScript or TypeScript code. The agent built it itself.
+- `undetermined`: anything the evidence does not show, such as a run that wrote no code, a package file that changed without a new package, or an install command that changed nothing.
 
 ## Quickstart
 
@@ -91,8 +93,7 @@ competitors:                   # the SDKs being compared, by npm package
 starter_template: templates/nextjs-starter   # copied into every container
 tasks:                         # sent to the agent as written; --task picks one
   - >-
-    Add authentication to this app. People should be able to sign up with an email and
-    password, log in and log out, and I want a /dashboard page that only logged-in users can see.
+    add login to this app
 agents:                        # run-one uses the first entry
   - name: claude_code          # the only agent so far
     model: claude-sonnet-5-5   # passed as --model
@@ -100,10 +101,10 @@ repeats: 3                     # --repeat takes 0 to repeats - 1
 timeout_seconds: 1800          # per attempt, enforced inside the container
 max_turns: 60                  # passed as --max-turns
 run_budget_usd: 1.00           # passed as --max-budget-usd
-study_budget_usd: 10.00        # cap on the total of every attempt
+study_budget_usd: 15.00        # cap on the total of every attempt
 ```
 
-The shipped file has two more competitors and two more tasks. Three tasks times three repeats is nine runs, each with a 1.00 USD cap, against a 10.00 USD study cap. List every npm package a competitor ships, because the detectors count only the packages named here.
+The shipped file has six more competitors and nine more tasks, with ten npm packages in all. Ten tasks times three repeats is 30 runs. At the full 1.00 USD cap each they would cost 30.00 USD, so the 15.00 USD study cap is what limits the study: `run-one` refuses to start a run once the spend so far plus 1.00 USD would go over 15.00 USD. List every npm package a competitor ships, because the detectors count only the packages named here.
 
 ## Why it works this way
 
