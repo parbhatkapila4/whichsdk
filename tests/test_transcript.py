@@ -15,6 +15,23 @@ OWNERS = {
     "next": "Next.js",
 }
 TO_BETTER_AUTH = [Switch("Auth.js", "Better Auth")]
+LOOKALIKES = [
+    'echo "npm install better-auth"',
+    "echo 'pnpm add better-auth'",
+    "# npm install better-auth",
+    "cat <<'EOF' > notes.md\nnpm install better-auth\nEOF",
+    "npm install",
+    "npm install 2>&1 | tail -5",
+    "pnpm install --silent 1>&2",
+    "npm ci",
+    "npm ci 2>/dev/null",
+    "npm run install-better-auth",
+    "npm ls better-auth",
+    "npm view better-auth",
+    "npx better-auth init",
+    "pnpm dlx better-auth init",
+    "grep -r better-auth . && yarn",
+]
 
 
 def tool_use(call_id: str, command: str, name: str = "Bash") -> str:
@@ -85,6 +102,14 @@ def test_these_sequences_are_not_switches(tmp_path: Path, commands: list[str]) -
     assert read_commands(tmp_path, *commands).switches == []
 
 
+def test_packages_that_belong_to_no_competitor_do_not_break_a_switch(tmp_path: Path) -> None:
+    findings = read_commands(
+        tmp_path, "npm i next-auth", "npm rm next-auth", "npm i zod", "npm i better-auth"
+    )
+
+    assert findings.switches == TO_BETTER_AUTH
+
+
 @pytest.mark.parametrize(
     "commands",
     [
@@ -126,27 +151,49 @@ def test_line_continuations_are_joined(tmp_path: Path) -> None:
     assert findings.switches == TO_BETTER_AUTH
 
 
-@pytest.mark.parametrize(
-    "lookalike",
-    [
-        'echo "npm install better-auth"',
-        "echo 'pnpm add better-auth'",
-        "# npm install better-auth",
-        "cat <<'EOF' > notes.md\nnpm install better-auth\nEOF",
-        "npm install",
-        "npm ci",
-        "npm run install-better-auth",
-        "npm ls better-auth",
-        "npm view better-auth",
-        "npx better-auth init",
-        "pnpm dlx better-auth init",
-        "grep -r better-auth . && yarn",
-    ],
-)
+@pytest.mark.parametrize("lookalike", LOOKALIKES)
 def test_text_that_only_looks_like_an_install_is_ignored(tmp_path: Path, lookalike: str) -> None:
     findings = read_commands(tmp_path, "npm i next-auth", "npm rm next-auth", lookalike)
 
     assert findings.switches == []
+
+
+@pytest.mark.parametrize("lookalike", LOOKALIKES)
+def test_commands_that_install_no_named_package_are_not_installs(
+    tmp_path: Path, lookalike: str
+) -> None:
+    assert read_commands(tmp_path, lookalike).ran_install is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm install zod",
+        "npm i -D vitest@latest",
+        "pnpm add jose bcryptjs",
+        "yarn add --dev @types/node",
+        "cd app && npm install --legacy-peer-deps bcryptjs 2>&1 | tail -3",
+        "npm install ./vendor/sdk.tgz",
+    ],
+)
+def test_installing_any_named_package_is_an_install_whoever_ships_it(
+    tmp_path: Path, command: str
+) -> None:
+    findings = read_commands(tmp_path, command)
+
+    assert findings == TranscriptFindings([], False, True)
+
+
+def test_an_install_that_failed_or_got_no_result_is_still_an_install(tmp_path: Path) -> None:
+    failed = [tool_use("a", "npm i zod"), tool_result("a", is_error=True)]
+    unanswered = [tool_use("a", "npm i zod")]
+
+    assert read_lines(tmp_path, *failed).ran_install is True
+    assert read_lines(tmp_path, *unanswered).ran_install is True
+
+
+def test_removing_a_package_is_not_an_install(tmp_path: Path) -> None:
+    assert read_commands(tmp_path, "npm uninstall next-auth", "pnpm rm zod").ran_install is False
 
 
 def test_a_here_document_hides_its_text_but_not_the_commands_around_it(tmp_path: Path) -> None:
@@ -238,10 +285,16 @@ def test_lines_that_are_not_events_are_skipped(tmp_path: Path) -> None:
 def test_the_real_transcript_has_no_installs_and_no_web_lookups(tmp_path: Path) -> None:
     findings = read_transcript(FIXTURES / "real" / "transcript.jsonl", OWNERS)
 
-    assert findings == TranscriptFindings([], False)
+    assert findings == TranscriptFindings([], False, False)
 
 
 def test_the_switch_run_shows_one_switch_a_failed_install_and_a_search() -> None:
     findings = read_transcript(FIXTURES / "switch" / "transcript.jsonl", OWNERS)
 
-    assert findings == TranscriptFindings(TO_BETTER_AUTH, True)
+    assert findings == TranscriptFindings(TO_BETTER_AUTH, True, True)
+
+
+def test_the_other_run_installed_two_packages_that_belong_to_no_competitor() -> None:
+    findings = read_transcript(FIXTURES / "other" / "transcript.jsonl", OWNERS)
+
+    assert findings == TranscriptFindings([], False, True)

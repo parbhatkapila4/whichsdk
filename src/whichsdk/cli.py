@@ -11,7 +11,7 @@ from whichsdk.agents.base import Agent, AgentResult
 from whichsdk.agents.claude_code import ClaudeCodeAgent
 from whichsdk.detect.build import BuildResult, run_build
 from whichsdk.detect.deps import compare_dependencies
-from whichsdk.detect.imports import find_imports
+from whichsdk.detect.imports import adds_source, find_imports
 from whichsdk.detect.transcript import read_transcript
 from whichsdk.detect.verdict import Detection, judge
 from whichsdk.sandbox import IMAGE, Sandbox, SandboxError, start_sandbox
@@ -231,10 +231,10 @@ def _save_changes(box: Sandbox, run_dir: Path) -> None:
 
 def _detect_attempt(spec: StudySpec, attempt_dir: Path) -> Detection:
     owners = spec.package_owners()
-    changes = compare_dependencies(attempt_dir / BASELINE_DIR, attempt_dir, owners)
-    imported = find_imports(attempt_dir / CHANGES_NAME, owners)
+    diff = attempt_dir / CHANGES_NAME
+    changes = compare_dependencies(attempt_dir / BASELINE_DIR, attempt_dir, owners, PACKAGE_FILES)
     findings = read_transcript(attempt_dir / TRANSCRIPT_NAME, owners)
-    return judge(changes, imported, findings)
+    return judge(changes, find_imports(diff, owners), adds_source(diff), findings)
 
 
 def _detect_saved(store: Store, spec: StudySpec, run: Run, attempt_dir: Path) -> str:
@@ -249,9 +249,11 @@ def _detect_saved(store: Store, spec: StudySpec, run: Run, attempt_dir: Path) ->
 
 
 def _describe(detection: Detection) -> str:
-    if detection.picked is None:
-        return detection.verdict
-    return f"{detection.verdict} ({detection.picked})"
+    if detection.picked is not None:
+        return f"{detection.verdict} ({detection.picked})"
+    if detection.verdict == "other":
+        return f"{detection.verdict} ({', '.join(detection.added)})"
+    return detection.verdict
 
 
 def _report(run: Run, detection: Detection, build: BuildResult) -> None:

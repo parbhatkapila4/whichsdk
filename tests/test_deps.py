@@ -1,14 +1,22 @@
 import json
 import shutil
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
 
+from whichsdk.cli import PACKAGE_FILES
 from whichsdk.detect.deps import DependencyChanges, compare_dependencies, package_name
 
 FIXTURES = Path(__file__).parent / "fixtures"
 OWNERS = {"kleur": "Kleur", "left-pad": "Left Pad", "@types/ms": "Ms Types"}
-NOTHING = DependencyChanges({}, {})
+UNCHANGED = DependencyChanges({}, {}, {}, False)
+
+
+def compare(baseline: Path, final: Path, owners: Mapping[str, str] = OWNERS) -> DependencyChanges:
+    changes = compare_dependencies(baseline, final, owners, PACKAGE_FILES)
+    assert changes is not None
+    return changes
 
 
 def copy_state(source: Path, destination: Path) -> Path:
@@ -28,20 +36,42 @@ def declare(directory: Path, section: str, name: str, version: str) -> None:
     write_package(directory, package)
 
 
+def bump_a_version(directory: Path) -> None:
+    package = directory / "package.json"
+    package.write_bytes(package.read_bytes().replace(b"^2.1.3", b"^2.1.4"))
+
+
+def add_a_script(directory: Path) -> None:
+    declare(directory, "scripts", "lint", "next lint")
+
+
+def rewrite_the_lockfile(directory: Path) -> None:
+    lockfile = directory / "package-lock.json"
+    lockfile.write_text(lockfile.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+
+def delete_the_lockfile(directory: Path) -> None:
+    (directory / "package-lock.json").unlink()
+
+
+def add_another_lockfile(directory: Path) -> None:
+    shutil.copyfile(FIXTURES / "pnpm" / "final" / "pnpm-lock.yaml", directory / "pnpm-lock.yaml")
+
+
 @pytest.mark.parametrize("manager", ["npm", "pnpm", "yarn"])
 def test_each_package_manager_shows_what_was_added_and_removed(manager: str) -> None:
-    changes = compare_dependencies(
-        FIXTURES / manager / "baseline", FIXTURES / manager / "final", OWNERS
-    )
+    changes = compare(FIXTURES / manager / "baseline", FIXTURES / manager / "final")
 
-    assert changes.added == {"@types/ms": "Ms Types", "kleur": "Kleur"}
-    assert changes.removed == {"left-pad": "Left Pad"}
+    assert changes == DependencyChanges(
+        added={"@types/ms": "Ms Types", "kleur": "Kleur"},
+        removed={"left-pad": "Left Pad"},
+        unlocked={},
+        package_files_changed=True,
+    )
 
 
 def test_packages_that_belong_to_no_competitor_map_to_none() -> None:
-    changes = compare_dependencies(
-        FIXTURES / "npm" / "baseline", FIXTURES / "npm" / "final", {"kleur": "Kleur"}
-    )
+    changes = compare(FIXTURES / "npm" / "baseline", FIXTURES / "npm" / "final", {"kleur": "Kleur"})
 
     assert changes.added == {"@types/ms": None, "kleur": "Kleur"}
     assert changes.removed == {"left-pad": None}
@@ -51,9 +81,9 @@ def test_a_package_listed_in_package_json_but_not_locked_is_not_installed(tmp_pa
     final = copy_state(FIXTURES / "npm" / "final", tmp_path / "final")
     declare(final, "dependencies", "left-pad", "^1.3.0")
 
-    changes = compare_dependencies(FIXTURES / "npm" / "final", final, OWNERS)
+    changes = compare(FIXTURES / "npm" / "final", final)
 
-    assert changes == NOTHING
+    assert changes == DependencyChanges({}, {}, {"left-pad": "Left Pad"}, True)
 
 
 def test_without_a_lockfile_package_json_decides(tmp_path: Path) -> None:
@@ -63,10 +93,11 @@ def test_without_a_lockfile_package_json_decides(tmp_path: Path) -> None:
     (final / "package-lock.json").unlink()
     declare(final, "dependencies", "left-pad", "^1.3.0")
 
-    changes = compare_dependencies(baseline, final, OWNERS)
+    changes = compare(baseline, final)
 
     assert changes.added == {"@types/ms": "Ms Types", "kleur": "Kleur"}
     assert changes.removed == {}
+    assert changes.unlocked == {}
 
 
 @pytest.mark.parametrize(
@@ -84,7 +115,7 @@ def test_every_lockfile_that_exists_counts(
     final = copy_state(FIXTURES / fresh / "final", tmp_path / "final")
     shutil.copyfile(FIXTURES / stale / "baseline" / stale_lockfile, final / stale_lockfile)
 
-    changes = compare_dependencies(FIXTURES / "npm" / "baseline", final, OWNERS)
+    changes = compare(FIXTURES / "npm" / "baseline", final)
 
     assert changes.added == {"@types/ms": "Ms Types", "kleur": "Kleur"}
     assert changes.removed == {"left-pad": "Left Pad"}
@@ -94,33 +125,74 @@ def test_optional_dependencies_count(tmp_path: Path) -> None:
     baseline = write_package(tmp_path / "baseline", {"dependencies": {}})
     final = write_package(tmp_path / "final", {"optionalDependencies": {"kleur": "^4.1.5"}})
 
-    changes = compare_dependencies(baseline, final, OWNERS)
+    changes = compare(baseline, final)
 
     assert changes.added == {"kleur": "Kleur"}
 
 
-def test_an_unreadable_final_package_json_means_nothing_is_detected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("unreadable", ["baseline", "final"])
+def test_an_unreadable_package_json_cannot_be_compared(tmp_path: Path, unreadable: str) -> None:
+    baseline = copy_state(FIXTURES / "npm" / "baseline", tmp_path / "baseline")
     final = copy_state(FIXTURES / "npm" / "final", tmp_path / "final")
-    (final / "package.json").write_text("{not json", encoding="utf-8")
+    (tmp_path / unreadable / "package.json").write_text("{not json", encoding="utf-8")
 
-    assert compare_dependencies(FIXTURES / "npm" / "baseline", final, OWNERS) == NOTHING
+    assert compare_dependencies(baseline, final, OWNERS, PACKAGE_FILES) is None
 
 
-def test_a_missing_package_json_means_nothing_is_detected(tmp_path: Path) -> None:
-    assert compare_dependencies(FIXTURES / "npm" / "baseline", tmp_path, OWNERS) == NOTHING
+@pytest.mark.parametrize("missing", ["baseline", "final"])
+def test_a_missing_package_json_cannot_be_compared(tmp_path: Path, missing: str) -> None:
+    baseline = copy_state(FIXTURES / "npm" / "baseline", tmp_path / "baseline")
+    final = copy_state(FIXTURES / "npm" / "final", tmp_path / "final")
+    (tmp_path / missing / "package.json").unlink()
+
+    assert compare_dependencies(baseline, final, OWNERS, PACKAGE_FILES) is None
 
 
 def test_an_unreadable_lockfile_is_ignored_and_package_json_decides(tmp_path: Path) -> None:
     final = copy_state(FIXTURES / "pnpm" / "final", tmp_path / "final")
     (final / "pnpm-lock.yaml").write_text("packages: [unclosed", encoding="utf-8")
 
-    changes = compare_dependencies(FIXTURES / "pnpm" / "baseline", final, OWNERS)
+    changes = compare(FIXTURES / "pnpm" / "baseline", final)
 
     assert changes.added == {"@types/ms": "Ms Types", "kleur": "Kleur"}
     assert changes.removed == {"left-pad": "Left Pad"}
 
 
-def test_the_real_run_installed_nothing_and_its_real_lockfile_is_read(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "change",
+    [
+        bump_a_version,
+        add_a_script,
+        rewrite_the_lockfile,
+        delete_the_lockfile,
+        add_another_lockfile,
+    ],
+)
+def test_any_difference_in_a_package_file_counts_as_a_change(
+    tmp_path: Path, change: Callable[[Path], None]
+) -> None:
+    final = copy_state(FIXTURES / "npm" / "final", tmp_path / "final")
+    change(final)
+
+    assert compare(FIXTURES / "npm" / "final", final).package_files_changed is True
+
+
+def test_a_change_to_a_file_that_is_not_a_package_file_does_not_count(tmp_path: Path) -> None:
+    final = copy_state(FIXTURES / "npm" / "final", tmp_path / "final")
+    (final / "notes.txt").write_text("changed", encoding="utf-8")
+
+    assert compare(FIXTURES / "npm" / "final", final) == UNCHANGED
+
+
+def test_a_package_that_was_already_unlocked_at_the_baseline_is_not_new(tmp_path: Path) -> None:
+    baseline = copy_state(FIXTURES / "npm" / "final", tmp_path / "baseline")
+    declare(baseline, "dependencies", "left-pad", "^1.3.0")
+    final = copy_state(baseline, tmp_path / "final")
+
+    assert compare(baseline, final) == UNCHANGED
+
+
+def test_the_real_run_changed_no_package_file_and_its_real_lockfile_is_read(tmp_path: Path) -> None:
     real = FIXTURES / "real"
     baseline = tmp_path / "baseline"
     final = tmp_path / "final"
@@ -128,11 +200,13 @@ def test_the_real_run_installed_nothing_and_its_real_lockfile_is_read(tmp_path: 
         directory.mkdir()
         for name in ("package.json", "package-lock.json"):
             shutil.copyfile(real / name, directory / name)
-    assert compare_dependencies(baseline, final, {"next": "Next.js"}) == NOTHING
+    assert compare(baseline, final, {"next": "Next.js"}) == UNCHANGED
 
     declare(final, "dependencies", "zod", "^3.0.0")
 
-    assert compare_dependencies(baseline, final, {"zod": "Zod"}) == NOTHING
+    assert compare(baseline, final, {"zod": "Zod"}) == DependencyChanges(
+        {}, {}, {"zod": "Zod"}, True
+    )
 
 
 @pytest.mark.parametrize(

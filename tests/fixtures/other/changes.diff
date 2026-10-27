@@ -1,0 +1,14 @@
+diff --git a/lib/session.ts b/lib/session.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/session.ts
+@@ -0,0 +1,9 @@
++import bcrypt from "bcryptjs";
++import { SignJWT } from "jose";
++
++const key = new TextEncoder().encode(process.env.SESSION_SECRET);
++
++export const hashPassword = (password: string) => bcrypt.hash(password, 12);
++
++export const signSession = (userId: string) =>
++  new SignJWT({ userId }).setProtectedHeader({ alg: "HS256" }).setExpirationTime("7d").sign(key);

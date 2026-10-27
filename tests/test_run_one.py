@@ -64,16 +64,21 @@ class UncopyableSandbox(FakeSandbox):
 
 
 class DetectingSandbox(FakeSandbox):
+    def __init__(self, name: str, added: Mapping[str, str], code: str) -> None:
+        super().__init__(name, "sandbox")
+        self._added = added
+        self._code = code
+
     def copy_out(self, names: Iterable[str], directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         dependencies = {"next": "16.4.3"}
         if directory.name != "baseline":
-            dependencies["better-auth"] = "^1.3.4"
+            dependencies.update(self._added)
         package = json.dumps({"dependencies": dependencies})
         (directory / "package.json").write_text(package, encoding="utf-8")
 
     def changes_since_baseline(self, exclude: Iterable[str]) -> str:
-        return '+++ b/lib/auth.ts\n+import { betterAuth } from "better-auth";\n'
+        return f"+++ b/lib/auth.ts\n+{self._code}\n"
 
 
 class FakeAgent(Agent):
@@ -366,7 +371,8 @@ def test_the_verdict_is_decided_from_what_the_run_saved(
 
     @contextmanager
     def detecting(name: str, starter: Path) -> Iterator[Sandbox]:
-        yield DetectingSandbox(name, "sandbox")
+        code = 'import { betterAuth } from "better-auth";'
+        yield DetectingSandbox(name, {"better-auth": "^1.3.4"}, code)
 
     monkeypatch.setattr(cli, "start_sandbox", detecting)
     transcript = [
@@ -392,6 +398,41 @@ def test_the_verdict_is_decided_from_what_the_run_saved(
             0,
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("added", "commands", "line"),
+    [
+        ({}, [], "Verdict: no_sdk; build passed"),
+        (
+            {"jose": "^6.2.13", "bcryptjs": "^3.0.3"},
+            ["npm i jose bcryptjs"],
+            "Verdict: other (bcryptjs, jose); build passed",
+        ),
+    ],
+    ids=["no_sdk", "other"],
+)
+def test_a_run_that_picked_no_competitor_gets_its_own_verdict(
+    harness: Harness,
+    monkeypatch: pytest.MonkeyPatch,
+    added: dict[str, str],
+    commands: list[str],
+    line: str,
+) -> None:
+    @contextmanager
+    def detecting(name: str, starter: Path) -> Iterator[Sandbox]:
+        yield DetectingSandbox(name, added, "export const maxAge = 60;")
+
+    monkeypatch.setattr(cli, "start_sandbox", detecting)
+    transcript = [
+        row for number, command in enumerate(commands) for row in bash(f"c{number}", command)
+    ]
+    harness.results.append(AgentResult(0, transcript, 0.2, 12.0))
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 0, outcome.output
+    assert line in outcome.output
 
 
 def test_a_detector_that_breaks_never_loses_the_run(

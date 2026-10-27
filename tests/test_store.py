@@ -4,12 +4,13 @@ from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
 from whichsdk.detect.build import BuildResult
 from whichsdk.detect.transcript import Switch
-from whichsdk.detect.verdict import Detection
+from whichsdk.detect.verdict import Detection, Verdict
 from whichsdk.store import Run, Spend, Store
 
 RUN_ID = "demo-t0-claude_code-r0"
@@ -23,6 +24,26 @@ PICKED = Detection(
     searched=True,
 )
 UNDETERMINED = Detection("undetermined", None, {}, {}, {}, [], False)
+OTHER = Detection("other", None, {"jose": None, "bcryptjs": None}, {}, {}, [], False)
+# The results table as it was before the verdicts other and no_sdk existed.
+OLD_RESULTS_TABLE = """
+CREATE TABLE results (
+    run_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    verdict TEXT NOT NULL
+        CHECK (verdict IN ('picked', 'installed_unused', 'multiple', 'undetermined')),
+    picked_competitor TEXT,
+    added TEXT NOT NULL,
+    removed TEXT NOT NULL,
+    imported TEXT NOT NULL,
+    switches TEXT NOT NULL,
+    searched INTEGER NOT NULL,
+    build_passed INTEGER,
+    build_log_path TEXT,
+    PRIMARY KEY (run_id, attempt),
+    FOREIGN KEY (run_id, attempt) REFERENCES runs (id, attempt)
+);
+"""
 
 
 @pytest.fixture
@@ -325,11 +346,73 @@ def test_results_need_an_attempt_that_exists(store: Store) -> None:
         store.save_results(ghost, PICKED, None)
 
 
-def test_a_verdict_other_than_the_four_is_refused(store: Store) -> None:
+@pytest.mark.parametrize("verdict", get_args(Verdict))
+def test_every_verdict_can_be_saved(store: Store, db_path: Path, verdict: Verdict) -> None:
+    store.save_results(next_attempt(store), replace(UNDETERMINED, verdict=verdict), None)
+
+    assert query(db_path, "SELECT verdict FROM results") == [(verdict,)]
+
+
+def test_a_verdict_outside_the_list_is_refused(store: Store) -> None:
     none_at_all = replace(PICKED, verdict="none")
 
     with pytest.raises(sqlite3.IntegrityError):
         store.save_results(next_attempt(store), none_at_all, None)
+
+
+def test_other_keeps_the_packages_that_were_added(store: Store, db_path: Path) -> None:
+    store.save_results(next_attempt(store), OTHER, None)
+
+    [(added,)] = query(db_path, "SELECT added FROM results")
+    assert json.loads(str(added)) == {"jose": None, "bcryptjs": None}
+
+
+@pytest.fixture
+def older_db(db_path: Path) -> Path:
+    with closing(Store(db_path)) as current:
+        current.save_study("demo", "name: demo")
+        log = Path("runs") / RUN_ID / "build.log"
+        current.save_results(next_attempt(current), PICKED, BuildResult(True, log))
+    with closing(sqlite3.connect(db_path)) as db:
+        db.executescript(
+            "ALTER TABLE results RENAME TO current_results;"
+            + OLD_RESULTS_TABLE
+            + "INSERT INTO results SELECT * FROM current_results; DROP TABLE current_results;"
+        )
+    return db_path
+
+
+def test_a_results_table_from_before_the_new_verdicts_is_rebuilt_with_its_rows(
+    older_db: Path,
+) -> None:
+    with closing(Store(older_db)):
+        pass
+
+    assert query(older_db, "SELECT verdict, picked_competitor, build_passed FROM results") == [
+        ("picked", "Better Auth", 1)
+    ]
+    assert query(older_db, "SELECT name FROM sqlite_master WHERE name = 'results_old'") == []
+
+
+def test_the_rebuilt_table_takes_every_verdict_and_still_refuses_others(older_db: Path) -> None:
+    with closing(Store(older_db)) as store:
+        run = store.get_run(RUN_ID, 1)
+        for verdict in get_args(Verdict):
+            store.save_results(run, replace(UNDETERMINED, verdict=verdict), None)
+
+        with pytest.raises(sqlite3.IntegrityError):
+            store.save_results(run, replace(UNDETERMINED, verdict="none"), None)
+
+
+def test_a_current_database_is_not_rebuilt_when_it_is_opened(db_path: Path) -> None:
+    with closing(Store(db_path)):
+        pass
+    before = query(db_path, "PRAGMA schema_version")
+
+    with closing(Store(db_path)):
+        pass
+
+    assert query(db_path, "PRAGMA schema_version") == before
 
 
 def test_an_older_database_gets_the_results_table_when_it_is_opened(db_path: Path) -> None:

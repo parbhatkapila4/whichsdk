@@ -1,5 +1,5 @@
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,10 +10,21 @@ DEPENDENCY_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies"
 
 @dataclass(frozen=True)
 class DependencyChanges:
-    """Packages installed or removed between two project states, each with its competitor."""
+    """Packages installed, removed or declared without a lock, each with its competitor or None.
+
+    package_files_changed is True when any package file differs byte for byte.
+    """
 
     added: dict[str, str | None]
     removed: dict[str, str | None]
+    unlocked: dict[str, str | None]
+    package_files_changed: bool
+
+
+@dataclass(frozen=True)
+class _Packages:
+    declared: set[str]
+    installed: set[str]
 
 
 def package_name(spec: str) -> str:
@@ -23,26 +34,41 @@ def package_name(spec: str) -> str:
 
 
 def compare_dependencies(
-    baseline: Path, final: Path, owners: Mapping[str, str]
-) -> DependencyChanges:
-    """List the packages installed or removed between two directories holding package files."""
-    before, after = _installed(baseline), _installed(final)
+    baseline: Path, final: Path, owners: Mapping[str, str], package_files: Iterable[str]
+) -> DependencyChanges | None:
+    """Compare the package files of two directories; None if a package.json cannot be read."""
+    before, after = _read_packages(baseline), _read_packages(final)
     if before is None or after is None:
-        return DependencyChanges({}, {})
+        return None
     return DependencyChanges(
-        added={name: owners.get(name) for name in sorted(after - before)},
-        removed={name: owners.get(name) for name in sorted(before - after)},
+        added=_owned(after.installed - before.installed, owners),
+        removed=_owned(before.installed - after.installed, owners),
+        unlocked=_owned(after.declared - before.declared - after.installed, owners),
+        package_files_changed=any(
+            _contents(baseline / name) != _contents(final / name) for name in package_files
+        ),
     )
 
 
-def _installed(directory: Path) -> set[str] | None:
+def _read_packages(directory: Path) -> _Packages | None:
     try:
         package = json.loads((directory / "package.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     declared = {name for section in DEPENDENCY_SECTIONS for name in package.get(section, {})}
     locked = _locked(directory)
-    return declared if locked is None else declared & locked
+    return _Packages(declared, declared if locked is None else declared & locked)
+
+
+def _owned(names: Iterable[str], owners: Mapping[str, str]) -> dict[str, str | None]:
+    return {name: owners.get(name) for name in sorted(names)}
+
+
+def _contents(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
 
 
 def _locked(directory: Path) -> set[str] | None:

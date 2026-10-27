@@ -3,10 +3,10 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from whichsdk.detect.build import BuildResult
-from whichsdk.detect.verdict import Detection
+from whichsdk.detect.verdict import Detection, Verdict
 
 Status = Literal["pending", "running", "done", "failed"]
 
@@ -44,12 +44,15 @@ CREATE TABLE IF NOT EXISTS events (
     payload TEXT NOT NULL,
     FOREIGN KEY (run_id, attempt) REFERENCES runs (id, attempt)
 );
+"""
 
+RESULTS_TABLE = """
 CREATE TABLE IF NOT EXISTS results (
     run_id TEXT NOT NULL,
     attempt INTEGER NOT NULL,
-    verdict TEXT NOT NULL
-        CHECK (verdict IN ('picked', 'installed_unused', 'multiple', 'undetermined')),
+    verdict TEXT NOT NULL CHECK (
+        verdict IN ('picked', 'installed_unused', 'multiple', 'other', 'no_sdk', 'undetermined')
+    ),
     picked_competitor TEXT,
     added TEXT NOT NULL,
     removed TEXT NOT NULL,
@@ -101,7 +104,8 @@ class Store:
         self._db = sqlite3.connect(path)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
-        self._db.executescript(SCHEMA)
+        self._db.executescript(SCHEMA + RESULTS_TABLE)
+        self._allow_every_verdict()
 
     def close(self) -> None:
         """Close the database connection."""
@@ -264,6 +268,17 @@ class Store:
                 "WHERE run_id = ? AND attempt = ? AND build_log_path IS NOT NULL",
                 (log_path.as_posix(), run_id, attempt),
             )
+
+    def _allow_every_verdict(self) -> None:
+        # SQLite cannot change a CHECK, so a table made before a verdict existed is rebuilt.
+        (sql,) = self._db.execute("SELECT sql FROM sqlite_master WHERE name = 'results'").fetchone()
+        if all(f"'{verdict}'" in sql for verdict in get_args(Verdict)):
+            return
+        self._db.executescript(
+            "BEGIN; ALTER TABLE results RENAME TO results_old;"
+            + RESULTS_TABLE
+            + "INSERT INTO results SELECT * FROM results_old; DROP TABLE results_old; COMMIT;"
+        )
 
     def _latest_attempt(self, run_id: str) -> Run | None:
         row = self._db.execute(

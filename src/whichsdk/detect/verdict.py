@@ -4,7 +4,7 @@ from typing import Literal
 from whichsdk.detect.deps import DependencyChanges
 from whichsdk.detect.transcript import Switch, TranscriptFindings
 
-Verdict = Literal["picked", "installed_unused", "multiple", "undetermined"]
+Verdict = Literal["picked", "installed_unused", "multiple", "other", "no_sdk", "undetermined"]
 
 
 @dataclass(frozen=True)
@@ -21,24 +21,41 @@ class Detection:
 
 
 def judge(
-    changes: DependencyChanges, imported: dict[str, str], findings: TranscriptFindings
+    changes: DependencyChanges | None,
+    imported: dict[str, str],
+    wrote_code: bool,
+    findings: TranscriptFindings,
 ) -> Detection:
-    """Draw the verdict; whatever the findings cannot show is undetermined, never none."""
-    installed = sorted({competitor for competitor in changes.added.values() if competitor})
-    verdict: Verdict = "undetermined"
-    picked = None
-    if len(installed) > 1:
-        verdict = "multiple"
-    elif installed and installed[0] in imported.values():
-        verdict, picked = "picked", installed[0]
-    elif installed:
-        verdict = "installed_unused"
+    """Draw the verdict; whatever the findings do not positively show is undetermined."""
+    verdict, picked = _verdict(changes, imported, wrote_code, findings)
+    added = {} if changes is None else changes.added
+    removed = {} if changes is None else changes.removed
     return Detection(
-        verdict,
-        picked,
-        changes.added,
-        changes.removed,
-        imported,
-        findings.switches,
-        findings.searched,
+        verdict, picked, added, removed, imported, findings.switches, findings.searched
     )
+
+
+def _verdict(
+    changes: DependencyChanges | None,
+    imported: dict[str, str],
+    wrote_code: bool,
+    findings: TranscriptFindings,
+) -> tuple[Verdict, str | None]:
+    if changes is None:
+        return "undetermined", None
+    installed = sorted({competitor for competitor in changes.added.values() if competitor})
+    if len(installed) > 1:
+        return "multiple", None
+    if installed:
+        if installed[0] in imported.values():
+            return "picked", installed[0]
+        return "installed_unused", None
+    # A competitor that is imported or declared but not installed contradicts both labels below.
+    if imported or any(changes.unlocked.values()):
+        return "undetermined", None
+    if changes.added:
+        return "other", None
+    # A run that wrote no code says nothing about how the agent builds auth.
+    if wrote_code and not changes.package_files_changed and not findings.ran_install:
+        return "no_sdk", None
+    return "undetermined", None

@@ -26,35 +26,40 @@ class Switch:
 
 @dataclass(frozen=True)
 class TranscriptFindings:
-    """The switches between competitors in a transcript, and whether the web was used."""
+    """What a transcript shows: switches between competitors, web lookups and package installs."""
 
     switches: list[Switch]
     searched: bool
+    ran_install: bool
 
 
 @dataclass(frozen=True)
 class _PackageEvent:
     action: str
     package: str
-    competitor: str
+    competitor: str | None
 
 
 def read_transcript(path: Path, owners: Mapping[str, str]) -> TranscriptFindings:
-    """Find competitor installs and removals, in order, and any web lookups in a transcript."""
+    """Find competitor switches, any package install command and any web lookup in a transcript."""
     events = list(_events(path))
     succeeded = {
         block["tool_use_id"]: not block.get("is_error") for block in _blocks(events, "tool_result")
     }
     calls = list(_blocks(events, "tool_use"))
     package_events = [
-        package_event
+        (call["id"], package_event)
         for call in calls
-        if call.get("name") == "Bash" and succeeded.get(call["id"], False)
+        if call.get("name") == "Bash"
         for segment in _commands(call.get("input", {}).get("command", ""))
         for package_event in _package_events(segment, owners)
     ]
+    switches = _switches(
+        event for call_id, event in package_events if succeeded.get(call_id, False)
+    )
     searched = any(call.get("name") in WEB_TOOLS for call in calls)
-    return TranscriptFindings(_switches(package_events), searched)
+    ran_install = any(event.action == "install" for _, event in package_events)
+    return TranscriptFindings(switches, searched, ran_install)
 
 
 def _events(path: Path) -> Iterator[dict[str, Any]]:
@@ -87,6 +92,9 @@ def _commands(command: str) -> Iterator[list[str]]:
         segment: list[str] = []
         for token in tokens:
             if set(token) <= OPERATOR_CHARACTERS:
+                # The 2 in 2>&1 is a file descriptor, not an argument of the command.
+                if segment and segment[-1].isdigit():
+                    segment.pop()
                 if segment:
                     yield segment
                 segment = []
@@ -119,8 +127,7 @@ def _package_events(segment: list[str], owners: Mapping[str, str]) -> Iterator[_
     action = "install" if words[0] in INSTALL_VERBS else "uninstall"
     for spec in words[1:]:
         package = package_name(spec)
-        if package in owners:
-            yield _PackageEvent(action, package, owners[package])
+        yield _PackageEvent(action, package, owners.get(package))
 
 
 def _switches(events: Iterable[_PackageEvent]) -> list[Switch]:
@@ -128,6 +135,8 @@ def _switches(events: Iterable[_PackageEvent]) -> list[Switch]:
     left: str | None = None
     switches: list[Switch] = []
     for event in events:
+        if event.competitor is None:
+            continue
         if event.action == "install":
             if event.competitor not in installed:
                 if left is not None and left != event.competitor:

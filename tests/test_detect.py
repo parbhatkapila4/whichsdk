@@ -72,17 +72,47 @@ def store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Store]:
         yield saved
 
 
-def test_the_real_run_is_undetermined_because_it_installed_no_sdk(store: Store) -> None:
+def test_the_real_run_built_its_own_auth_and_is_no_sdk(store: Store) -> None:
     run = save_attempt(store, "real")
 
     outcome = detect()
 
     assert outcome.exit_code == 0, outcome.output
-    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined"
+    assert outcome.output.strip() == f"{run.id} attempt 1: no_sdk"
     assert db(
         "SELECT verdict, picked_competitor, added, removed, imported, switches, searched, "
         "build_passed, build_log_path FROM results"
-    ) == [("undetermined", None, "{}", "{}", "{}", "[]", 0, 1, f"runs/{run.id}/build.log")]
+    ) == [("no_sdk", None, "{}", "{}", "{}", "[]", 0, 1, f"runs/{run.id}/build.log")]
+
+
+def test_packages_that_belong_to_no_competitor_are_other_and_stay_listed(store: Store) -> None:
+    run = save_attempt(store, "other")
+
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: other (bcryptjs, jose)"
+    assert db("SELECT verdict, picked_competitor, added, imported FROM results") == [
+        ("other", None, '{"bcryptjs": null, "jose": null}', "{}")
+    ]
+
+
+def test_a_run_that_wrote_no_code_is_not_no_sdk(store: Store) -> None:
+    run = save_attempt(store, "real")
+    (Path("runs") / run.id / "changes.diff").write_text("", encoding="utf-8")
+
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined"
+
+
+def test_a_changed_lockfile_is_not_no_sdk(store: Store) -> None:
+    run = save_attempt(store, "real")
+    lockfile = Path("runs") / run.id / "package-lock.json"
+    lockfile.write_text(lockfile.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined"
 
 
 def test_a_switch_is_found_and_the_competitor_that_was_kept_is_picked(store: Store) -> None:
@@ -108,7 +138,7 @@ def test_a_switch_is_found_and_the_competitor_that_was_kept_is_picked(store: Sto
 def test_detection_can_be_fixed_and_rerun_without_an_agent(store: Store) -> None:
     save_attempt(store, "switch")
     write_study(competitors=[{"name": "Clerk", "npm_packages": ["@clerk/nextjs"]}])
-    assert "undetermined" in detect().output
+    assert "other (better-auth)" in detect().output
 
     write_study()
     second = detect()
@@ -146,11 +176,11 @@ def test_every_attempt_is_detected_wherever_its_files_were_moved_to(store: Store
     outcome = detect()
 
     assert outcome.output.splitlines() == [
-        f"{first.id} attempt 1: undetermined",
+        f"{first.id} attempt 1: no_sdk",
         f"{second.id} attempt 2: picked (Better Auth)",
     ]
     assert db("SELECT attempt, verdict FROM results ORDER BY attempt") == [
-        (1, "undetermined"),
+        (1, "no_sdk"),
         (2, "picked"),
     ]
 
