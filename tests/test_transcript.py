@@ -39,9 +39,18 @@ def tool_use(call_id: str, command: str, name: str = "Bash") -> str:
     return json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [block]}})
 
 
-def tool_result(call_id: str, is_error: bool = False) -> str:
-    block = {"type": "tool_result", "tool_use_id": call_id, "content": "x", "is_error": is_error}
+def tool_result(call_id: str, is_error: bool = False, content: str = "x") -> str:
+    block = {
+        "type": "tool_result",
+        "tool_use_id": call_id,
+        "content": content,
+        "is_error": is_error,
+    }
     return json.dumps({"type": "user", "message": {"role": "user", "content": [block]}})
+
+
+def result_event(subtype: str) -> str:
+    return json.dumps({"type": "result", "subtype": subtype, "is_error": subtype != "success"})
 
 
 def read_lines(tmp_path: Path, *lines: str) -> TranscriptFindings:
@@ -181,7 +190,7 @@ def test_installing_any_named_package_is_an_install_whoever_ships_it(
 ) -> None:
     findings = read_commands(tmp_path, command)
 
-    assert findings == TranscriptFindings([], False, True)
+    assert findings == TranscriptFindings([], False, True, False)
 
 
 def test_an_install_that_failed_or_got_no_result_is_still_an_install(tmp_path: Path) -> None:
@@ -282,19 +291,53 @@ def test_lines_that_are_not_events_are_skipped(tmp_path: Path) -> None:
     assert findings.switches == TO_BETTER_AUTH
 
 
-def test_the_real_transcript_has_no_installs_and_no_web_lookups(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("subtype", "hit"),
+    [("error_max_turns", True), ("success", False), ("error_during_execution", False)],
+)
+def test_a_result_event_that_says_the_turn_limit_was_reached_is_noticed(
+    tmp_path: Path, subtype: str, hit: bool
+) -> None:
+    findings = read_lines(tmp_path, tool_use("a", "ls"), tool_result("a"), result_event(subtype))
+
+    assert findings.hit_turn_limit is hit
+
+
+def test_the_words_of_a_turn_limit_outside_a_result_event_are_not_one(tmp_path: Path) -> None:
+    lines = [
+        tool_use("a", "echo error_max_turns"),
+        tool_result("a", content="error_max_turns"),
+        json.dumps({"type": "system", "subtype": "error_max_turns"}),
+    ]
+
+    assert read_lines(tmp_path, *lines).hit_turn_limit is False
+
+
+def test_a_run_that_was_killed_before_its_result_event_did_not_hit_the_turn_limit(
+    tmp_path: Path,
+) -> None:
+    assert read_commands(tmp_path, "ls").hit_turn_limit is False
+
+
+def test_the_real_transcript_has_no_installs_and_no_web_lookups() -> None:
     findings = read_transcript(FIXTURES / "real" / "transcript.jsonl", OWNERS)
 
-    assert findings == TranscriptFindings([], False, False)
+    assert findings == TranscriptFindings([], False, False, False)
 
 
 def test_the_switch_run_shows_one_switch_a_failed_install_and_a_search() -> None:
     findings = read_transcript(FIXTURES / "switch" / "transcript.jsonl", OWNERS)
 
-    assert findings == TranscriptFindings(TO_BETTER_AUTH, True, True)
+    assert findings == TranscriptFindings(TO_BETTER_AUTH, True, True, False)
 
 
 def test_the_other_run_installed_two_packages_that_belong_to_no_competitor() -> None:
     findings = read_transcript(FIXTURES / "other" / "transcript.jsonl", OWNERS)
 
-    assert findings == TranscriptFindings([], False, True)
+    assert findings == TranscriptFindings([], False, True, False)
+
+
+def test_the_real_final_event_of_a_run_that_ran_out_of_turns_is_recognised() -> None:
+    findings = read_transcript(FIXTURES / "max_turns" / "transcript.jsonl", OWNERS)
+
+    assert findings == TranscriptFindings([], False, False, True)

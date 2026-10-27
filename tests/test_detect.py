@@ -13,10 +13,10 @@ from whichsdk.store import Run, Store
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).parent / "fixtures"
-STUDY = "auth-nextjs"
 SHIPPED_STUDY = yaml.safe_load(
     (REPO_ROOT / "studies" / "auth-nextjs.yaml").read_text(encoding="utf-8")
 )
+STUDY = SHIPPED_STUDY["name"]
 
 
 def write_study(**overrides: object) -> None:
@@ -80,9 +80,9 @@ def test_the_real_run_built_its_own_auth_and_is_no_sdk(store: Store) -> None:
     assert outcome.exit_code == 0, outcome.output
     assert outcome.output.strip() == f"{run.id} attempt 1: no_sdk"
     assert db(
-        "SELECT verdict, picked_competitor, added, removed, imported, switches, searched, "
+        "SELECT verdict, picked_competitor, reason, added, removed, imported, switches, searched, "
         "build_passed, build_log_path FROM results"
-    ) == [("no_sdk", None, "{}", "{}", "{}", "[]", 0, 1, f"runs/{run.id}/build.log")]
+    ) == [("no_sdk", None, None, "{}", "{}", "{}", "[]", 0, 1, f"runs/{run.id}/build.log")]
 
 
 def test_packages_that_belong_to_no_competitor_are_other_and_stay_listed(store: Store) -> None:
@@ -102,7 +102,8 @@ def test_a_run_that_wrote_no_code_is_not_no_sdk(store: Store) -> None:
 
     outcome = detect()
 
-    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined"
+    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined (no_code_added)"
+    assert db("SELECT verdict, reason FROM results") == [("undetermined", "no_code_added")]
 
 
 def test_a_changed_lockfile_is_not_no_sdk(store: Store) -> None:
@@ -112,7 +113,44 @@ def test_a_changed_lockfile_is_not_no_sdk(store: Store) -> None:
 
     outcome = detect()
 
-    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined"
+    expected = f"{run.id} attempt 1: undetermined (lockfile_changed_without_package)"
+    assert outcome.output.strip() == expected
+
+
+def test_a_run_that_did_not_finish_is_undetermined_even_when_it_looks_like_no_sdk(
+    store: Store,
+) -> None:
+    run = save_attempt(store, "real", failed=True)
+
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined (run_failed)"
+    assert db("SELECT verdict, reason, added, imported FROM results") == [
+        ("undetermined", "run_failed", "{}", "{}")
+    ]
+
+
+def test_a_run_that_ran_out_of_turns_says_so(store: Store) -> None:
+    run = save_attempt(store, "real", failed=True)
+    shutil.copyfile(
+        FIXTURES / "max_turns" / "transcript.jsonl", Path("runs") / run.id / "transcript.jsonl"
+    )
+
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: undetermined (max_turns)"
+    assert db("SELECT reason FROM results") == [("max_turns",)]
+
+
+def test_a_turn_limit_in_the_transcript_does_not_change_the_verdict_of_a_done_run(
+    store: Store,
+) -> None:
+    run = save_attempt(store, "real")
+    shutil.copyfile(
+        FIXTURES / "max_turns" / "transcript.jsonl", Path("runs") / run.id / "transcript.jsonl"
+    )
+
+    assert detect().output.strip() == f"{run.id} attempt 1: no_sdk"
 
 
 def test_a_switch_is_found_and_the_competitor_that_was_kept_is_picked(store: Store) -> None:
@@ -176,11 +214,11 @@ def test_every_attempt_is_detected_wherever_its_files_were_moved_to(store: Store
     outcome = detect()
 
     assert outcome.output.splitlines() == [
-        f"{first.id} attempt 1: no_sdk",
+        f"{first.id} attempt 1: undetermined (run_failed)",
         f"{second.id} attempt 2: picked (Better Auth)",
     ]
     assert db("SELECT attempt, verdict FROM results ORDER BY attempt") == [
-        (1, "no_sdk"),
+        (1, "undetermined"),
         (2, "picked"),
     ]
 
@@ -190,7 +228,7 @@ def test_attempts_that_never_ran_an_agent_are_left_out(store: Store) -> None:
 
     outcome = detect()
 
-    assert outcome.output.strip() == "No saved runs of auth-nextjs to detect."
+    assert outcome.output.strip() == f"No saved runs of {STUDY} to detect."
 
 
 def test_detect_needs_the_database_of_the_current_folder(

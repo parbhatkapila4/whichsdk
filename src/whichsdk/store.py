@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS results (
         verdict IN ('picked', 'installed_unused', 'multiple', 'other', 'no_sdk', 'undetermined')
     ),
     picked_competitor TEXT,
+    reason TEXT,
     added TEXT NOT NULL,
     removed TEXT NOT NULL,
     imported TEXT NOT NULL,
@@ -91,9 +92,13 @@ class Run:
 
 @dataclass(frozen=True)
 class Spend:
-    """What a study has cost, and how many of its attempts had no reported cost."""
+    """What a study has cost.
+
+    total_usd also counts each attempt without a reported cost at an assumed amount.
+    """
 
     total_usd: float
+    reported_usd: float
     unreported_attempts: int
 
 
@@ -105,7 +110,7 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(SCHEMA + RESULTS_TABLE)
-        self._allow_every_verdict()
+        self._bring_results_up_to_date()
 
     def close(self) -> None:
         """Close the database connection."""
@@ -158,15 +163,29 @@ class Store:
     def study_spend(self, study: str, unreported_usd: float) -> Spend:
         """Total cost of every attempt, failed ones included.
 
-        An attempt that started its agent but reported no cost counts as unreported_usd.
+        An attempt that is running, or that started its agent and reported no cost, counts as
+        unreported_usd, because it may still spend that much.
         """
         recorded, unreported = self._db.execute(
             "SELECT COALESCE(SUM(cost_usd), 0.0), "
-            "COALESCE(SUM(cost_usd IS NULL AND agent_started_at IS NOT NULL), 0) "
+            "COALESCE(SUM(cost_usd IS NULL AND (status = 'running' "
+            "OR agent_started_at IS NOT NULL)), 0) "
             "FROM runs WHERE study = ?",
             (study,),
         ).fetchone()
-        return Spend(recorded + unreported * unreported_usd, unreported)
+        return Spend(recorded + unreported * unreported_usd, recorded, unreported)
+
+    def verdict_counts(self, study: str) -> dict[str, int]:
+        """Count the verdicts of the newest attempt of each run whose newest attempt has results."""
+        rows = self._db.execute(
+            "SELECT results.verdict, COUNT(*) FROM results "
+            "JOIN runs ON runs.id = results.run_id AND runs.attempt = results.attempt "
+            "WHERE runs.study = ? AND runs.attempt = "
+            "(SELECT MAX(attempt) FROM runs AS newer WHERE newer.id = runs.id) "
+            "GROUP BY results.verdict",
+            (study,),
+        ).fetchall()
+        return {verdict: count for verdict, count in rows}
 
     def start_run(self, run: Run, model: str) -> None:
         """Move a pending attempt to running and record the model it will use."""
@@ -243,13 +262,14 @@ class Store:
         with self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO results (run_id, attempt, verdict, picked_competitor, "
-                "added, removed, imported, switches, searched, build_passed, build_log_path) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "reason, added, removed, imported, switches, searched, build_passed, "
+                "build_log_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run.id,
                     run.attempt,
                     detection.verdict,
                     detection.picked,
+                    detection.reason,
                     json.dumps(detection.added),
                     json.dumps(detection.removed),
                     json.dumps(detection.imported),
@@ -269,15 +289,17 @@ class Store:
                 (log_path.as_posix(), run_id, attempt),
             )
 
-    def _allow_every_verdict(self) -> None:
-        # SQLite cannot change a CHECK, so a table made before a verdict existed is rebuilt.
+    def _bring_results_up_to_date(self) -> None:
         (sql,) = self._db.execute("SELECT sql FROM sqlite_master WHERE name = 'results'").fetchone()
-        if all(f"'{verdict}'" in sql for verdict in get_args(Verdict)):
+        columns = [row["name"] for row in self._db.execute("PRAGMA table_info(results)")]
+        if "reason" in columns and all(f"'{verdict}'" in sql for verdict in get_args(Verdict)):
             return
+        kept = ", ".join(columns)
         self._db.executescript(
             "BEGIN; ALTER TABLE results RENAME TO results_old;"
             + RESULTS_TABLE
-            + "INSERT INTO results SELECT * FROM results_old; DROP TABLE results_old; COMMIT;"
+            + f"INSERT INTO results ({kept}) SELECT {kept} FROM results_old;"
+            + " DROP TABLE results_old; COMMIT;"
         )
 
     def _latest_attempt(self, run_id: str) -> Run | None:

@@ -17,16 +17,20 @@ RUN_ID = "demo-t0-claude_code-r0"
 PICKED = Detection(
     verdict="picked",
     picked="Better Auth",
+    reason=None,
     added={"better-auth": "Better Auth", "zod": None},
     removed={"next-auth": "Auth.js"},
     imported={"better-auth": "Better Auth"},
     switches=[Switch("Auth.js", "Better Auth")],
     searched=True,
 )
-UNDETERMINED = Detection("undetermined", None, {}, {}, {}, [], False)
-OTHER = Detection("other", None, {"jose": None, "bcryptjs": None}, {}, {}, [], False)
-# The results table as it was before the verdicts other and no_sdk existed.
-OLD_RESULTS_TABLE = """
+UNDETERMINED = Detection("undetermined", None, "run_failed", {}, {}, {}, [], False)
+OTHER = Detection("other", None, None, {"jose": None, "bcryptjs": None}, {}, {}, [], False)
+OLD_COLUMNS = (
+    "run_id, attempt, verdict, picked_competitor, added, removed, imported, switches, searched, "
+    "build_passed, build_log_path"
+)
+FOUR_VERDICTS_TABLE = """
 CREATE TABLE results (
     run_id TEXT NOT NULL,
     attempt INTEGER NOT NULL,
@@ -44,6 +48,10 @@ CREATE TABLE results (
     FOREIGN KEY (run_id, attempt) REFERENCES runs (id, attempt)
 );
 """
+SIX_VERDICTS_TABLE = FOUR_VERDICTS_TABLE.replace(
+    "('picked', 'installed_unused', 'multiple', 'undetermined')",
+    "('picked', 'installed_unused', 'multiple', 'other', 'no_sdk', 'undetermined')",
+)
 
 
 @pytest.fixture
@@ -223,16 +231,17 @@ def test_spend_counts_an_agent_run_without_a_cost_at_the_given_amount(store: Sto
 
     spend = store.study_spend("demo", 1.0)
 
-    assert (spend.total_usd, spend.unreported_attempts) == (1.25, 1)
+    assert (spend.total_usd, spend.reported_usd, spend.unreported_attempts) == (1.25, 0.25, 1)
     assert store.get_run(RUN_ID, 1).cost_usd is None
 
 
-def test_spend_ignores_attempts_that_never_reached_the_agent(store: Store) -> None:
+def test_spend_ignores_attempts_that_never_started_or_failed_before_the_agent(
+    store: Store,
+) -> None:
     next_attempt(store, repeat=0)
-    store.start_run(next_attempt(store, repeat=1), "test-model")
-    fail_before_the_agent(store, next_attempt(store, repeat=2))
+    fail_before_the_agent(store, next_attempt(store, repeat=1))
 
-    assert store.study_spend("demo", 1.0) == Spend(0.0, 0)
+    assert store.study_spend("demo", 1.0) == Spend(0.0, 0.0, 0)
 
 
 def test_spend_counts_an_attempt_whose_agent_is_still_running(store: Store) -> None:
@@ -240,7 +249,22 @@ def test_spend_counts_an_attempt_whose_agent_is_still_running(store: Store) -> N
     store.start_run(run, "test-model")
     store.begin_agent(run, "1.2.3")
 
-    assert store.study_spend("demo", 1.0) == Spend(1.0, 1)
+    assert store.study_spend("demo", 1.0) == Spend(1.0, 0.0, 1)
+
+
+def test_spend_counts_a_running_attempt_before_its_agent_has_started(store: Store) -> None:
+    store.start_run(next_attempt(store), "test-model")
+
+    assert store.study_spend("demo", 1.0) == Spend(1.0, 0.0, 1)
+
+
+def test_a_running_attempt_that_reported_its_cost_counts_at_that_cost(store: Store) -> None:
+    run = next_attempt(store)
+    store.start_run(run, "test-model")
+    store.begin_agent(run, "1.2.3")
+    store.record_result(run, 0, 0.3, 3.0, Path("runs") / RUN_ID / "transcript.jsonl")
+
+    assert store.study_spend("demo", 1.0) == Spend(0.3, 0.3, 0)
 
 
 def test_spend_is_kept_per_study(store: Store) -> None:
@@ -250,7 +274,7 @@ def test_spend_is_kept_per_study(store: Store) -> None:
 
     assert store.study_spend("demo", 1.0).total_usd == 0.5
     assert store.study_spend("other", 1.0).total_usd == 2.0
-    assert store.study_spend("never-run", 1.0) == Spend(0.0, 0)
+    assert store.study_spend("never-run", 1.0) == Spend(0.0, 0.0, 0)
 
 
 def test_moving_a_transcript_updates_only_attempts_that_have_one(store: Store) -> None:
@@ -367,34 +391,52 @@ def test_other_keeps_the_packages_that_were_added(store: Store, db_path: Path) -
     assert json.loads(str(added)) == {"jose": None, "bcryptjs": None}
 
 
-@pytest.fixture
-def older_db(db_path: Path) -> Path:
+def test_an_undetermined_verdict_keeps_its_reason_and_the_others_have_none(
+    store: Store, db_path: Path
+) -> None:
+    store.save_results(next_attempt(store, repeat=0), UNDETERMINED, None)
+    store.save_results(next_attempt(store, repeat=1), PICKED, None)
+
+    rows = query(db_path, "SELECT verdict, reason FROM results ORDER BY run_id")
+
+    assert rows == [("undetermined", "run_failed"), ("picked", None)]
+
+
+@pytest.fixture(params=[FOUR_VERDICTS_TABLE, SIX_VERDICTS_TABLE], ids=["four", "six"])
+def older_db(db_path: Path, request: pytest.FixtureRequest) -> Path:
     with closing(Store(db_path)) as current:
         current.save_study("demo", "name: demo")
         log = Path("runs") / RUN_ID / "build.log"
         current.save_results(next_attempt(current), PICKED, BuildResult(True, log))
+        current.save_results(
+            next_attempt(current, repeat=1), replace(UNDETERMINED, reason=None), None
+        )
     with closing(sqlite3.connect(db_path)) as db:
         db.executescript(
             "ALTER TABLE results RENAME TO current_results;"
-            + OLD_RESULTS_TABLE
-            + "INSERT INTO results SELECT * FROM current_results; DROP TABLE current_results;"
+            + request.param
+            + f"INSERT INTO results ({OLD_COLUMNS}) SELECT {OLD_COLUMNS} FROM current_results;"
+            + " DROP TABLE current_results;"
         )
     return db_path
 
 
-def test_a_results_table_from_before_the_new_verdicts_is_rebuilt_with_its_rows(
-    older_db: Path,
-) -> None:
+def test_an_older_results_table_is_rebuilt_with_its_rows(older_db: Path) -> None:
     with closing(Store(older_db)):
         pass
 
-    assert query(older_db, "SELECT verdict, picked_competitor, build_passed FROM results") == [
-        ("picked", "Better Auth", 1)
+    assert query(
+        older_db, "SELECT run_id, verdict, picked_competitor, reason, build_passed FROM results"
+    ) == [
+        (RUN_ID, "picked", "Better Auth", None, 1),
+        ("demo-t0-claude_code-r1", "undetermined", None, None, None),
     ]
     assert query(older_db, "SELECT name FROM sqlite_master WHERE name = 'results_old'") == []
 
 
-def test_the_rebuilt_table_takes_every_verdict_and_still_refuses_others(older_db: Path) -> None:
+def test_the_rebuilt_table_takes_every_verdict_and_a_reason_and_still_refuses_others(
+    older_db: Path,
+) -> None:
     with closing(Store(older_db)) as store:
         run = store.get_run(RUN_ID, 1)
         for verdict in get_args(Verdict):
@@ -402,6 +444,30 @@ def test_the_rebuilt_table_takes_every_verdict_and_still_refuses_others(older_db
 
         with pytest.raises(sqlite3.IntegrityError):
             store.save_results(run, replace(UNDETERMINED, verdict="none"), None)
+
+    assert query(
+        older_db, "SELECT reason FROM results WHERE run_id = 'demo-t0-claude_code-r0'"
+    ) == [("run_failed",)]
+
+
+def test_verdicts_are_counted_for_the_newest_attempt_of_each_run(store: Store) -> None:
+    redone = next_attempt(store, repeat=0)
+    run_agent(store, redone, exit_code=1, cost=0.1)
+    store.save_results(redone, UNDETERMINED, None)
+    again = next_attempt(store, repeat=0)
+    store.save_results(again, PICKED, None)
+    store.save_results(next_attempt(store, repeat=1), PICKED, None)
+    store.save_results(next_attempt(store, repeat=2), OTHER, None)
+    waiting = next_attempt(store, repeat=3)
+    run_agent(store, waiting, exit_code=1, cost=0.1)
+    store.save_results(waiting, UNDETERMINED, None)
+    next_attempt(store, repeat=3)
+    store.save_study("other", "name: other")
+    store.save_results(store.next_attempt("other", 0, "claude_code", 0), OTHER, None)
+
+    assert store.verdict_counts("demo") == {"picked": 2, "other": 1}
+    assert store.verdict_counts("other") == {"other": 1}
+    assert store.verdict_counts("never-run") == {}
 
 
 def test_a_current_database_is_not_rebuilt_when_it_is_opened(db_path: Path) -> None:

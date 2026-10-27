@@ -12,6 +12,7 @@ MANAGERS = {"npm", "pnpm", "yarn"}
 INSTALL_VERBS = {"install", "i", "add"}
 UNINSTALL_VERBS = {"uninstall", "remove", "rm", "un"}
 WEB_TOOLS = {"WebSearch", "WebFetch"}
+TURN_LIMIT_SUBTYPE = "error_max_turns"
 OPERATOR_CHARACTERS = set("();<>|&")
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*['\"]?(\w+)['\"]?")
 
@@ -26,11 +27,12 @@ class Switch:
 
 @dataclass(frozen=True)
 class TranscriptFindings:
-    """What a transcript shows: switches between competitors, web lookups and package installs."""
+    """What a transcript shows: switches, web lookups, package installs and a turn limit."""
 
     switches: list[Switch]
     searched: bool
     ran_install: bool
+    hit_turn_limit: bool
 
 
 @dataclass(frozen=True)
@@ -41,7 +43,7 @@ class _PackageEvent:
 
 
 def read_transcript(path: Path, owners: Mapping[str, str]) -> TranscriptFindings:
-    """Find competitor switches, any package install command and any web lookup in a transcript."""
+    """Find competitor switches, package installs, web lookups and a turn limit in a transcript."""
     events = list(_events(path))
     succeeded = {
         block["tool_use_id"]: not block.get("is_error") for block in _blocks(events, "tool_result")
@@ -59,7 +61,11 @@ def read_transcript(path: Path, owners: Mapping[str, str]) -> TranscriptFindings
     )
     searched = any(call.get("name") in WEB_TOOLS for call in calls)
     ran_install = any(event.action == "install" for _, event in package_events)
-    return TranscriptFindings(switches, searched, ran_install)
+    hit_turn_limit = any(
+        event.get("type") == "result" and event.get("subtype") == TURN_LIMIT_SUBTYPE
+        for event in events
+    )
+    return TranscriptFindings(switches, searched, ran_install, hit_turn_limit)
 
 
 def _events(path: Path) -> Iterator[dict[str, Any]]:
