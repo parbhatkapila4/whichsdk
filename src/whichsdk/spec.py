@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 NAME_PATTERN = r"^[a-z0-9][a-z0-9_-]*$"
 
@@ -41,6 +41,13 @@ class StudySpec(BaseModel):
     max_turns: int = Field(gt=0)
     run_budget_usd: float = Field(gt=0)
     study_budget_usd: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _agent_names_are_distinct(self) -> Self:
+        names = [agent.name for agent in self.agents]
+        if len(set(names)) != len(names):
+            raise ValueError("agent names must be distinct, because run ids are built from them")
+        return self
 
     def package_owners(self) -> dict[str, str]:
         """Map each competitor npm package to the name of the competitor that ships it."""

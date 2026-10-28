@@ -61,17 +61,25 @@ def test_each_competitor_package_maps_to_the_competitor_that_ships_it(tmp_path: 
 
 
 def test_each_agent_carries_its_model(tmp_path: Path) -> None:
+    agents = [{"name": "claude_code", "model": "claude-opus-5-5"}]
+
+    spec = load_study(write_study(tmp_path, {**VALID, "agents": agents}))
+
+    assert [(agent.name, agent.model) for agent in spec.agents] == [
+        ("claude_code", "claude-opus-5-5")
+    ]
+
+
+def test_two_agents_of_one_name_are_refused_because_their_run_ids_would_be_the_same(
+    tmp_path: Path,
+) -> None:
     agents = [
         {"name": "claude_code", "model": "claude-sonnet-5-5"},
         {"name": "claude_code", "model": "claude-opus-5-5"},
     ]
 
-    spec = load_study(write_study(tmp_path, {**VALID, "agents": agents}))
-
-    assert [(agent.name, agent.model) for agent in spec.agents] == [
-        ("claude_code", "claude-sonnet-5-5"),
-        ("claude_code", "claude-opus-5-5"),
-    ]
+    with pytest.raises(ValidationError, match="agent names must be distinct"):
+        load_study(write_study(tmp_path, {**VALID, "agents": agents}))
 
 
 def test_starter_template_becomes_a_path(tmp_path: Path) -> None:
@@ -162,6 +170,7 @@ def test_init_template_is_a_valid_study(tmp_path: Path) -> None:
 def test_shipped_study_is_valid() -> None:
     spec = load_study(REPO_ROOT / "studies" / "auth-nextjs.yaml")
 
+    assert (spec.name, spec.repeats) == ("auth-nextjs-v2", 5)
     assert {competitor.name for competitor in spec.competitors} == {
         "Clerk",
         "Better Auth",

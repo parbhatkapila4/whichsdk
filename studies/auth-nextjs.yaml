@@ -1,4 +1,4 @@
-name: auth-nextjs
+name: auth-nextjs-v2
 category: auth
 competitors:
   - name: Clerk
@@ -60,7 +60,7 @@ tasks:
 agents:
   - name: claude_code
     model: claude-sonnet-5-5
-repeats: 3
+repeats: 5
 timeout_seconds: 1800
 max_turns: 60
 run_budget_usd: 1.00
