@@ -324,7 +324,7 @@ def test_the_changes_and_the_build_log_are_saved_next_to_the_package_files(
     assert db("SELECT build_passed, build_log_path FROM results") == [
         (1, f"runs/{RUN_ID}/build.log")
     ]
-    assert "Verdict: undetermined; build passed" in outcome.output
+    assert "Verdict: undetermined (package_json_unreadable); build passed" in outcome.output
 
 
 def test_the_diff_is_taken_before_the_build_can_change_any_files(harness: Harness) -> None:
@@ -435,10 +435,41 @@ def test_a_run_that_picked_no_competitor_gets_its_own_verdict(
     assert line in outcome.output
 
 
+@pytest.mark.parametrize(
+    ("ending", "reason"),
+    [
+        ([], "run_failed"),
+        ([json.dumps({"type": "result", "subtype": "error_max_turns"})], "max_turns"),
+    ],
+    ids=["failed", "out of turns"],
+)
+def test_a_run_that_did_not_finish_is_undetermined_whatever_it_installed(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch, ending: list[str], reason: str
+) -> None:
+    @contextmanager
+    def detecting(name: str, starter: Path) -> Iterator[Sandbox]:
+        yield DetectingSandbox(
+            name, {"better-auth": "^1.3.4"}, 'import { betterAuth } from "better-auth";'
+        )
+
+    write_study(competitors=[{"name": "Better Auth", "npm_packages": ["better-auth"]}])
+    monkeypatch.setattr(cli, "start_sandbox", detecting)
+    harness.results.append(AgentResult(1, [*bash("a", "npm i better-auth"), *ending], 0.9, 12.0))
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 1
+    assert f"Verdict: undetermined ({reason}); build passed" in outcome.output
+    assert db("SELECT status FROM runs") == [("failed",)]
+    assert db("SELECT verdict, picked_competitor, reason, added FROM results") == [
+        ("undetermined", None, reason, '{"better-auth": "Better Auth"}')
+    ]
+
+
 def test_a_detector_that_breaks_never_loses_the_run(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def broken(spec: object, attempt_dir: Path) -> None:
+    def broken(spec: object, attempt_dir: Path, finished: bool) -> None:
         raise RuntimeError("a detector bug")
 
     monkeypatch.setattr(cli, "_detect_attempt", broken)

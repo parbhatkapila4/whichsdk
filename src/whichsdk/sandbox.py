@@ -60,7 +60,7 @@ class Sandbox:
 @contextmanager
 def start_sandbox(name: str, starter: Path) -> Iterator[Sandbox]:
     """Start a fresh container with the starter committed as a baseline; remove it on exit."""
-    _remove_container(name)
+    remove_container(name)
     _docker("run", "-d", "--init", "--pull", "never", "--name", name, IMAGE, "sleep", "infinity")
     try:
         sandbox = Sandbox(name)
@@ -68,7 +68,7 @@ def start_sandbox(name: str, starter: Path) -> Iterator[Sandbox]:
         _commit_baseline(sandbox)
         yield sandbox
     finally:
-        _remove_container(name)
+        remove_container(name)
 
 
 def with_timeout(seconds: int, command: Sequence[str]) -> list[str]:
@@ -76,7 +76,8 @@ def with_timeout(seconds: int, command: Sequence[str]) -> list[str]:
     return ["timeout", f"--kill-after={KILL_GRACE_SECONDS}", str(seconds), *command]
 
 
-def _remove_container(name: str) -> None:
+def remove_container(name: str) -> None:
+    """Stop and remove the container; nothing happens if there is none."""
     _docker("rm", "-f", name, check=False)
 
 
