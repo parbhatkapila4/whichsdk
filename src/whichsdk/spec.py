@@ -33,6 +33,7 @@ class StudySpec(BaseModel):
     name: str = Field(pattern=NAME_PATTERN)
     category: str
     competitors: list[Competitor] = Field(min_length=1)
+    helper_packages: list[str] = Field(default_factory=list)
     starter_template: Path
     tasks: list[str] = Field(min_length=1)
     agents: list[AgentSpec] = Field(min_length=1)

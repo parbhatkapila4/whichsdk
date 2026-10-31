@@ -27,6 +27,10 @@ competitors:
   - name: Firebase Auth
     npm_packages:
       - firebase
+helper_packages:
+  - server-only
+  - nodemailer
+  - "@types/*"
 starter_template: templates/nextjs-starter
 tasks:
   - >-

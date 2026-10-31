@@ -72,11 +72,11 @@ def _verdict(
         return "undetermined", None, "competitor_import_without_install"
     if any(changes.unlocked.values()):
         return "undetermined", None, "competitor_declared_without_lock"
-    if changes.added:
+    if any(name not in changes.helpers for name in changes.added):
         return "other", None, None
     if not wrote_code:
         return "undetermined", None, "no_code_added"
-    if changes.package_files_changed:
+    if changes.package_files_changed and not changes.added:
         return "undetermined", None, "lockfile_changed_without_package"
     if findings.ran_install:
         return "undetermined", None, "install_command_changed_nothing"

@@ -1,12 +1,12 @@
 import json
 import re
 import shlex
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from whichsdk.detect.deps import package_name
+from whichsdk.detect.deps import is_helper, package_name
 
 MANAGERS = {"npm", "pnpm", "yarn"}
 INSTALL_VERBS = {"install", "i", "add"}
@@ -27,7 +27,10 @@ class Switch:
 
 @dataclass(frozen=True)
 class TranscriptFindings:
-    """What a transcript shows: switches, web lookups, package installs and a turn limit."""
+    """What a transcript shows: switches, web lookups, package installs and a turn limit.
+
+    ran_install is True when an install command named a package that is not a helper.
+    """
 
     switches: list[Switch]
     searched: bool
@@ -42,7 +45,9 @@ class _PackageEvent:
     competitor: str | None
 
 
-def read_transcript(path: Path, owners: Mapping[str, str]) -> TranscriptFindings:
+def read_transcript(
+    path: Path, owners: Mapping[str, str], helpers: Sequence[str] = ()
+) -> TranscriptFindings:
     """Find competitor switches, package installs, web lookups and a turn limit in a transcript."""
     events = list(_events(path))
     succeeded = {
@@ -60,7 +65,11 @@ def read_transcript(path: Path, owners: Mapping[str, str]) -> TranscriptFindings
         event for call_id, event in package_events if succeeded.get(call_id, False)
     )
     searched = any(call.get("name") in WEB_TOOLS for call in calls)
-    ran_install = any(event.action == "install" for _, event in package_events)
+    ran_install = any(
+        event.action == "install"
+        and (event.competitor is not None or not is_helper(event.package, helpers))
+        for _, event in package_events
+    )
     hit_turn_limit = any(
         event.get("type") == "result" and event.get("subtype") == TURN_LIMIT_SUBTYPE
         for event in events

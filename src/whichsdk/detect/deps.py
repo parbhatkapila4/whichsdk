@@ -1,6 +1,7 @@
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import yaml
@@ -12,6 +13,7 @@ DEPENDENCY_SECTIONS = ("dependencies", "devDependencies", "optionalDependencies"
 class DependencyChanges:
     """Packages installed, removed or declared without a lock, each with its competitor or None.
 
+    helpers is the part of added that matches the study's helper patterns.
     package_files_changed is True when any package file differs byte for byte.
     """
 
@@ -19,6 +21,7 @@ class DependencyChanges:
     removed: dict[str, str | None]
     unlocked: dict[str, str | None]
     package_files_changed: bool
+    helpers: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -33,19 +36,32 @@ def package_name(spec: str) -> str:
     return spec if end == -1 else spec[:end]
 
 
+def is_helper(package: str, patterns: Sequence[str]) -> bool:
+    """Say whether the package matches one of the helper patterns, which may use * as a wildcard."""
+    return any(fnmatchcase(package, pattern) for pattern in patterns)
+
+
 def compare_dependencies(
-    baseline: Path, final: Path, owners: Mapping[str, str], package_files: Iterable[str]
+    baseline: Path,
+    final: Path,
+    owners: Mapping[str, str],
+    package_files: Iterable[str],
+    helpers: Sequence[str] = (),
 ) -> DependencyChanges | None:
     """Compare the package files of two directories; None if a package.json cannot be read."""
     before, after = _read_packages(baseline), _read_packages(final)
     if before is None or after is None:
         return None
+    added = _owned(after.installed - before.installed, owners)
     return DependencyChanges(
-        added=_owned(after.installed - before.installed, owners),
+        added=added,
         removed=_owned(before.installed - after.installed, owners),
         unlocked=_owned(after.declared - before.declared - after.installed, owners),
         package_files_changed=any(
             _contents(baseline / name) != _contents(final / name) for name in package_files
+        ),
+        helpers=frozenset(
+            name for name, owner in added.items() if owner is None and is_helper(name, helpers)
         ),
     )
 

@@ -5,6 +5,7 @@ import yaml
 from pydantic import ValidationError
 
 from whichsdk.cli import STUDY_TEMPLATE
+from whichsdk.detect.deps import is_helper
 from whichsdk.spec import load_study
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +61,15 @@ def test_each_competitor_package_maps_to_the_competitor_that_ships_it(tmp_path: 
     }
 
 
+def test_helper_packages_are_optional_and_kept_as_written(tmp_path: Path) -> None:
+    assert load_study(write_study(tmp_path, VALID)).helper_packages == []
+
+    helpers = ["server-only", "@types/*"]
+    spec = load_study(write_study(tmp_path, {**VALID, "helper_packages": helpers}))
+
+    assert spec.helper_packages == helpers
+
+
 def test_each_agent_carries_its_model(tmp_path: Path) -> None:
     agents = [{"name": "claude_code", "model": "claude-opus-5-5"}]
 
@@ -101,6 +111,8 @@ def test_whole_number_budgets_are_accepted(tmp_path: Path) -> None:
         ("name", "../escape"),
         ("name", ""),
         ("competitors", []),
+        ("helper_packages", "server-only"),
+        ("helper_packages", [{"name": "server-only"}]),
         ("tasks", []),
         ("agents", []),
         ("agents", ["claude_code"]),
@@ -188,6 +200,15 @@ def test_shipped_study_is_valid() -> None:
     ]
     assert (spec.run_budget_usd, spec.study_budget_usd) == (1.0, 15.0)
     assert (REPO_ROOT / spec.starter_template).is_dir()
+
+
+def test_shipped_study_names_its_helpers_and_none_of_them_matches_a_competitor_package() -> None:
+    spec = load_study(REPO_ROOT / "studies" / "auth-nextjs.yaml")
+
+    assert spec.helper_packages == ["server-only", "nodemailer", "@types/*"]
+    assert not [
+        package for package in spec.package_owners() if is_helper(package, spec.helper_packages)
+    ]
 
 
 def test_shipped_competitors_list_every_package_and_none_twice() -> None:

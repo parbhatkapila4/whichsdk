@@ -32,6 +32,57 @@ def judged(added: dict[str, str | None], imported: dict[str, str]) -> Detection:
     return judge(DependencyChanges(added, {}, {}, bool(added)), imported, True, QUIET, True)
 
 
+def with_helpers(added: dict[str, str | None], helpers: set[str]) -> DependencyChanges:
+    return DependencyChanges(added, {}, {}, True, frozenset(helpers))
+
+
+def test_a_run_that_added_only_helpers_is_no_sdk_and_still_records_them() -> None:
+    added = {"server-only": None, "@types/nodemailer": None, "nodemailer": None}
+
+    detection = judge(with_helpers(added, set(added)), {}, True, QUIET, True)
+
+    assert (detection.verdict, detection.picked, detection.reason) == ("no_sdk", None, None)
+    assert detection.added == added
+
+
+def test_a_helper_next_to_another_package_leaves_the_verdict_other() -> None:
+    added: dict[str, str | None] = {"nodemailer": None, "jose": None}
+
+    detection = judge(with_helpers(added, {"nodemailer"}), {}, True, QUIET, True)
+
+    assert detection.verdict == "other"
+    assert detection.added == added
+
+
+def test_a_helper_next_to_a_competitor_does_not_change_the_pick() -> None:
+    added = {"better-auth": "Better Auth", "server-only": None}
+
+    detection = judge(with_helpers(added, {"server-only"}), BETTER_AUTH, True, QUIET, True)
+
+    assert (detection.verdict, detection.picked) == ("picked", "Better Auth")
+
+
+def test_helpers_alone_cannot_make_a_run_no_sdk_when_no_code_was_written() -> None:
+    detection = judge(with_helpers({"nodemailer": None}, {"nodemailer"}), {}, False, QUIET, True)
+
+    assert (detection.verdict, detection.reason) == ("undetermined", "no_code_added")
+
+
+def test_helpers_explain_the_changed_package_files_but_not_an_install_that_changed_nothing() -> (
+    None
+):
+    helped = judge(with_helpers({"nodemailer": None}, {"nodemailer"}), {}, True, QUIET, True)
+    failed_install = judge(
+        with_helpers({"nodemailer": None}, {"nodemailer"}), {}, True, INSTALLED_SOMETHING, True
+    )
+
+    assert helped.verdict == "no_sdk"
+    assert (failed_install.verdict, failed_install.reason) == (
+        "undetermined",
+        "install_command_changed_nothing",
+    )
+
+
 def test_one_competitor_added_and_imported_is_picked() -> None:
     detection = judged({"better-auth": "Better Auth", "zod": None}, BETTER_AUTH)
 

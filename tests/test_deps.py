@@ -1,20 +1,30 @@
 import json
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
 from whichsdk.cli import PACKAGE_FILES
-from whichsdk.detect.deps import DependencyChanges, compare_dependencies, package_name
+from whichsdk.detect.deps import (
+    DependencyChanges,
+    compare_dependencies,
+    is_helper,
+    package_name,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 OWNERS = {"kleur": "Kleur", "left-pad": "Left Pad", "@types/ms": "Ms Types"}
 UNCHANGED = DependencyChanges({}, {}, {}, False)
 
 
-def compare(baseline: Path, final: Path, owners: Mapping[str, str] = OWNERS) -> DependencyChanges:
-    changes = compare_dependencies(baseline, final, owners, PACKAGE_FILES)
+def compare(
+    baseline: Path,
+    final: Path,
+    owners: Mapping[str, str] = OWNERS,
+    helpers: Sequence[str] = (),
+) -> DependencyChanges:
+    changes = compare_dependencies(baseline, final, owners, PACKAGE_FILES, helpers)
     assert changes is not None
     return changes
 
@@ -68,6 +78,46 @@ def test_each_package_manager_shows_what_was_added_and_removed(manager: str) -> 
         unlocked={},
         package_files_changed=True,
     )
+
+
+@pytest.mark.parametrize(
+    ("package", "patterns", "expected"),
+    [
+        ("server-only", ["server-only"], True),
+        ("server-only-extra", ["server-only"], False),
+        ("@types/node", ["@types/*"], True),
+        ("@types/react-dom", ["@types/*"], True),
+        ("types", ["@types/*"], False),
+        ("@typesafe/x", ["@types/*"], False),
+        ("nodemailer", ["server-only", "nodemailer"], True),
+        ("nodemailer", [], False),
+    ],
+)
+def test_a_helper_pattern_matches_a_name_exactly_or_through_a_star(
+    package: str, patterns: list[str], expected: bool
+) -> None:
+    assert is_helper(package, patterns) is expected
+
+
+def test_added_helpers_stay_in_added_and_are_listed_apart(tmp_path: Path) -> None:
+    changes = compare(
+        FIXTURES / "npm" / "baseline",
+        FIXTURES / "npm" / "final",
+        {"kleur": "Kleur"},
+        helpers=["@types/*", "left-pad"],
+    )
+
+    assert changes.added == {"@types/ms": None, "kleur": "Kleur"}
+    assert changes.helpers == {"@types/ms"}
+
+
+def test_a_competitor_package_is_never_a_helper_even_when_a_pattern_matches_it() -> None:
+    changes = compare(
+        FIXTURES / "npm" / "baseline", FIXTURES / "npm" / "final", helpers=["@types/*", "kleur"]
+    )
+
+    assert changes.added == {"@types/ms": "Ms Types", "kleur": "Kleur"}
+    assert changes.helpers == frozenset()
 
 
 def test_packages_that_belong_to_no_competitor_map_to_none() -> None:

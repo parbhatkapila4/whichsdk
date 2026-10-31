@@ -96,6 +96,21 @@ def test_packages_that_belong_to_no_competitor_are_other_and_stay_listed(store: 
     ]
 
 
+def test_naming_the_packages_as_helpers_and_detecting_again_makes_the_run_no_sdk(
+    store: Store,
+) -> None:
+    run = save_attempt(store, "other")
+    assert detect().output.strip() == f"{run.id} attempt 1: other (bcryptjs, jose)"
+
+    write_study(helper_packages=["jose", "bcryptjs"])
+    outcome = detect()
+
+    assert outcome.output.strip() == f"{run.id} attempt 1: no_sdk"
+    assert db("SELECT verdict, picked_competitor, reason, added FROM results") == [
+        ("no_sdk", None, None, '{"bcryptjs": null, "jose": null}')
+    ]
+
+
 def test_a_run_that_wrote_no_code_is_not_no_sdk(store: Store) -> None:
     run = save_attempt(store, "real")
     (Path("runs") / run.id / "changes.diff").write_text("", encoding="utf-8")

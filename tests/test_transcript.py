@@ -59,11 +59,53 @@ def read_lines(tmp_path: Path, *lines: str) -> TranscriptFindings:
     return read_transcript(path, OWNERS)
 
 
+def read_commands_with_helpers(
+    tmp_path: Path, helpers: list[str], *commands: str
+) -> TranscriptFindings:
+    lines: list[str] = []
+    for number, command in enumerate(commands):
+        lines += [tool_use(f"call_{number}", command), tool_result(f"call_{number}")]
+    path = tmp_path / "transcript.jsonl"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return read_transcript(path, OWNERS, helpers)
+
+
 def read_commands(tmp_path: Path, *commands: str) -> TranscriptFindings:
     lines: list[str] = []
     for number, command in enumerate(commands):
         lines += [tool_use(f"call_{number}", command), tool_result(f"call_{number}")]
     return read_lines(tmp_path, *lines)
+
+
+HELPERS = ["server-only", "nodemailer", "@types/*"]
+
+
+def test_installing_only_helpers_is_not_an_install_that_counts(tmp_path: Path) -> None:
+    findings = read_commands_with_helpers(
+        tmp_path, HELPERS, "npm i server-only", "npm install nodemailer && npm i -D @types/node"
+    )
+
+    assert findings.ran_install is False
+
+
+def test_a_helper_does_not_hide_an_install_of_another_package(tmp_path: Path) -> None:
+    findings = read_commands_with_helpers(
+        tmp_path, HELPERS, "npm i server-only", "npm install better-auth", "npm i jose"
+    )
+
+    assert findings.ran_install is True
+    assert (
+        read_commands_with_helpers(tmp_path, HELPERS, "npm i nodemailer jose").ran_install is True
+    )
+
+
+def test_a_helper_pattern_cannot_hide_a_competitor_install(tmp_path: Path) -> None:
+    findings = read_commands_with_helpers(
+        tmp_path, ["@clerk/*", "better-auth"], "npm i @clerk/nextjs"
+    )
+
+    assert findings.ran_install is True
+    assert read_commands_with_helpers(tmp_path, ["better-auth"], "npm i better-auth").ran_install
 
 
 def test_an_install_then_an_uninstall_then_another_install_is_a_switch(tmp_path: Path) -> None:
