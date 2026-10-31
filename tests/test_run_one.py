@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -8,7 +9,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner, Result
 
-from whichsdk import cli
+from whichsdk import cli, sandbox
 from whichsdk.agents.base import Agent, AgentResult
 from whichsdk.sandbox import ExecResult, Sandbox, SandboxError
 from whichsdk.store import Store
@@ -150,6 +151,44 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
     monkeypatch.setattr(cli, "ClaudeCodeAgent", harness.make_agent)
     monkeypatch.setattr(cli, "start_sandbox", harness.start_sandbox)
     return harness
+
+
+def test_a_docker_that_is_not_on_the_path_stops_run_one_before_anything_is_made(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr(cli, "check_docker", sandbox.check_docker)
+    monkeypatch.setattr(sandbox.subprocess, "run", missing)
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 1
+    assert outcome.output == "Docker is not on PATH.\n"
+    assert isinstance(outcome.exception, SystemExit)
+    assert harness.sandboxes == [] and harness.agents_built == []
+    assert not cli.DB_PATH.exists()
+
+
+def test_a_docker_daemon_that_does_not_answer_stops_run_one_with_one_line(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def daemon_down(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(args, 1, stdout=b"error during connect")
+
+    monkeypatch.setattr(cli, "check_docker", sandbox.check_docker)
+    monkeypatch.setattr(sandbox.subprocess, "run", daemon_down)
+
+    outcome = harness.run_one()
+
+    assert outcome.exit_code == 1
+    assert outcome.output == (
+        "The Docker daemon does not answer `docker info`. Start Docker and retry.\n"
+    )
+    assert isinstance(outcome.exception, SystemExit)
+    assert harness.sandboxes == [] and harness.agents_built == []
+    assert not cli.DB_PATH.exists()
 
 
 def test_a_retry_moves_the_earlier_attempt_aside_and_keeps_both_costs(harness: Harness) -> None:

@@ -128,6 +128,17 @@ def test_runs_are_counted_by_their_newest_attempt(store: Store) -> None:
     ]
 
 
+def test_a_running_attempt_that_never_reached_the_agent_costs_nothing(store: Store) -> None:
+    store.start_run(store.next_attempt("demo", 0, "claude_code", 0), "test-model")
+
+    outcome = status()
+
+    assert outcome.output.splitlines()[1:3] == [
+        "done 0, failed 0, running 1, pending 5",
+        "$0.00 of $20.00 spent on demo",
+    ]
+
+
 def test_a_retry_that_has_not_started_makes_its_run_pending_again(store: Store) -> None:
     finish(store, 0, 0, 1, 0.4, CRASHED)
     store.next_attempt("demo", 0, "claude_code", 0)

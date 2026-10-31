@@ -154,6 +154,22 @@ def test_an_attempt_left_running_is_closed_out_as_failed_and_kept(
     assert query(db_path, "SELECT run_id, attempt, kind FROM events") == [
         (RUN_ID, 1, "run_interrupted")
     ]
+    [(payload,)] = query(db_path, "SELECT payload FROM events")
+    assert "new attempt" in json.loads(str(payload))["message"]
+
+
+def test_a_running_attempt_can_be_failed_with_the_reason_kept_as_an_event(
+    store: Store, db_path: Path
+) -> None:
+    run = next_attempt(store)
+    store.start_run(run, "test-model")
+
+    store.fail_running(run, "its process ended")
+
+    failed = store.get_run(RUN_ID, 1)
+    assert (failed.status, failed.finished_at) == ("failed", None)
+    [(payload,)] = query(db_path, "SELECT payload FROM events WHERE kind = 'run_interrupted'")
+    assert json.loads(str(payload)) == {"message": "its process ended"}
 
 
 def test_a_crash_is_recovered_by_the_next_process(db_path: Path) -> None:
@@ -213,6 +229,8 @@ def test_only_a_running_attempt_can_begin_its_agent_take_a_result_or_finish(
         store.record_result(run, 0, None, 1.0, Path("transcript.jsonl"))
     with pytest.raises(ValueError, match="cannot finish"):
         store.finish_run(run, "done")
+    with pytest.raises(ValueError, match="cannot fail"):
+        store.fail_running(run, "gone")
 
 
 def test_spend_adds_up_failed_attempts_too(store: Store) -> None:
@@ -252,10 +270,10 @@ def test_spend_counts_an_attempt_whose_agent_is_still_running(store: Store) -> N
     assert store.study_spend("demo", 1.0) == Spend(1.0, 0.0, 1)
 
 
-def test_spend_counts_a_running_attempt_before_its_agent_has_started(store: Store) -> None:
+def test_spend_ignores_a_running_attempt_whose_agent_has_not_started(store: Store) -> None:
     store.start_run(next_attempt(store), "test-model")
 
-    assert store.study_spend("demo", 1.0) == Spend(1.0, 0.0, 1)
+    assert store.study_spend("demo", 1.0) == Spend(0.0, 0.0, 0)
 
 
 def test_a_running_attempt_that_reported_its_cost_counts_at_that_cost(store: Store) -> None:
@@ -468,6 +486,53 @@ def test_verdicts_are_counted_for_the_newest_attempt_of_each_run(store: Store) -
     assert store.verdict_counts("demo") == {"picked": 2, "other": 1}
     assert store.verdict_counts("other") == {"other": 1}
     assert store.verdict_counts("never-run") == {}
+
+
+def test_outcomes_are_the_newest_attempt_of_each_run_with_everything_the_detectors_found(
+    store: Store,
+) -> None:
+    first = next_attempt(store)
+    run_agent(store, first, exit_code=1, cost=0.4)
+    store.save_results(first, UNDETERMINED, None)
+    second = next_attempt(store)
+    run_agent(store, second, exit_code=0, cost=0.3)
+    store.save_results(second, PICKED, BuildResult(False, Path("runs/build.log")))
+
+    [outcome] = store.study_outcomes("demo")
+
+    assert (outcome.run.id, outcome.run.attempt, outcome.run.cost_usd) == (RUN_ID, 2, 0.3)
+    assert outcome.detection == PICKED
+    assert outcome.build_passed is False
+
+
+def test_outcomes_leave_out_runs_without_results_and_other_studies(store: Store) -> None:
+    store.save_study("other", "name: other")
+    saved = next_attempt(store, repeat=0)
+    run_agent(store, saved, exit_code=0, cost=0.1)
+    store.save_results(saved, OTHER, None)
+    run_agent(store, next_attempt(store, repeat=1), exit_code=0, cost=0.1)
+    elsewhere = store.next_attempt("other", 0, "claude_code", 0)
+    run_agent(store, elsewhere, exit_code=0, cost=0.1)
+    store.save_results(elsewhere, OTHER, None)
+
+    [outcome] = store.study_outcomes("demo")
+
+    assert outcome.run.repeat == 0
+    assert outcome.build_passed is None
+
+
+def test_outcomes_come_in_task_then_repeat_order(store: Store) -> None:
+    for task, repeat in [(1, 0), (0, 2), (0, 0), (1, 1)]:
+        run = store.next_attempt("demo", task, "claude_code", repeat)
+        run_agent(store, run, exit_code=0, cost=0.1)
+        store.save_results(run, OTHER, None)
+
+    assert [(o.run.task_index, o.run.repeat) for o in store.study_outcomes("demo")] == [
+        (0, 0),
+        (0, 2),
+        (1, 0),
+        (1, 1),
+    ]
 
 
 def test_a_current_database_is_not_rebuilt_when_it_is_opened(db_path: Path) -> None:

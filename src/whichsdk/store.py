@@ -1,11 +1,12 @@
 import json
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, get_args
 
 from whichsdk.detect.build import BuildResult
+from whichsdk.detect.transcript import Switch
 from whichsdk.detect.verdict import Detection, Verdict
 
 Status = Literal["pending", "running", "done", "failed"]
@@ -91,6 +92,15 @@ class Run:
 
 
 @dataclass(frozen=True)
+class Outcome:
+    """The newest attempt of a run, what the detectors found in it and whether its build passed."""
+
+    run: Run
+    detection: Detection
+    build_passed: bool | None
+
+
+@dataclass(frozen=True)
 class Spend:
     """What a study has cost.
 
@@ -133,11 +143,7 @@ class Store:
             if latest is not None and latest.status in ("pending", "done"):
                 return latest
             if latest is not None and latest.status == "running":
-                self._db.execute(
-                    "UPDATE runs SET status = 'failed' WHERE id = ? AND attempt = ?",
-                    (latest.id, latest.attempt),
-                )
-                self._insert_event(latest.id, latest.attempt, "run_interrupted", {})
+                self._fail_running(latest, "a new attempt was started while this one was running")
             attempt = 1 if latest is None else latest.attempt + 1
             self._db.execute(
                 "INSERT INTO runs (id, attempt, study, task_index, agent, repeat) "
@@ -163,13 +169,12 @@ class Store:
     def study_spend(self, study: str, unreported_usd: float) -> Spend:
         """Total cost of every attempt, failed ones included.
 
-        An attempt that is running, or that started its agent and reported no cost, counts as
-        unreported_usd, because it may still spend that much.
+        An attempt that started its agent and reported no cost counts as unreported_usd, because
+        it may have spent that much. One that never reached the agent counts nothing.
         """
         recorded, unreported = self._db.execute(
             "SELECT COALESCE(SUM(cost_usd), 0.0), "
-            "COALESCE(SUM(cost_usd IS NULL AND (status = 'running' "
-            "OR agent_started_at IS NOT NULL)), 0) "
+            "COALESCE(SUM(cost_usd IS NULL AND agent_started_at IS NOT NULL), 0) "
             "FROM runs WHERE study = ?",
             (study,),
         ).fetchone()
@@ -186,6 +191,36 @@ class Store:
             (study,),
         ).fetchall()
         return {verdict: count for verdict, count in rows}
+
+    def study_outcomes(self, study: str) -> list[Outcome]:
+        """Return the newest attempt of each run that has results, in task and repeat order."""
+        rows = self._db.execute(
+            "SELECT runs.*, results.verdict, results.picked_competitor, results.reason, "
+            "results.added, results.removed, results.imported, results.switches, "
+            "results.searched, results.build_passed FROM results "
+            "JOIN runs ON runs.id = results.run_id AND runs.attempt = results.attempt "
+            "WHERE runs.study = ? AND runs.attempt = "
+            "(SELECT MAX(attempt) FROM runs AS newer WHERE newer.id = runs.id) "
+            "ORDER BY runs.task_index, runs.repeat, runs.agent",
+            (study,),
+        ).fetchall()
+        return [
+            Outcome(
+                Run(**{field.name: row[field.name] for field in fields(Run)}),
+                Detection(
+                    verdict=row["verdict"],
+                    picked=row["picked_competitor"],
+                    reason=row["reason"],
+                    added=json.loads(row["added"]),
+                    removed=json.loads(row["removed"]),
+                    imported=json.loads(row["imported"]),
+                    switches=[Switch(**switch) for switch in json.loads(row["switches"])],
+                    searched=bool(row["searched"]),
+                ),
+                None if row["build_passed"] is None else bool(row["build_passed"]),
+            )
+            for row in rows
+        ]
 
     def start_run(self, run: Run, model: str) -> None:
         """Move a pending attempt to running and record the model it will use."""
@@ -223,6 +258,11 @@ class Store:
                 (exit_code, cost_usd, duration_s, transcript_path.as_posix(), run.id, run.attempt),
             )
         _expect_one_row(cursor, run, "record a result for")
+
+    def fail_running(self, run: Run, reason: str) -> None:
+        """Close out an attempt marked running that nothing is working on, and record why."""
+        with self._db:
+            self._fail_running(run, reason)
 
     def finish_run(self, run: Run, status: Literal["done", "failed"]) -> None:
         """Move a running attempt to done or failed."""
@@ -301,6 +341,14 @@ class Store:
             + f"INSERT INTO results ({kept}) SELECT {kept} FROM results_old;"
             + " DROP TABLE results_old; COMMIT;"
         )
+
+    def _fail_running(self, run: Run, reason: str) -> None:
+        cursor = self._db.execute(
+            "UPDATE runs SET status = 'failed' WHERE id = ? AND attempt = ? AND status = 'running'",
+            (run.id, run.attempt),
+        )
+        _expect_one_row(cursor, run, "fail")
+        self._insert_event(run.id, run.attempt, "run_interrupted", {"message": reason})
 
     def _latest_attempt(self, run_id: str) -> Run | None:
         row = self._db.execute(

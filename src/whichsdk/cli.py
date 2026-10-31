@@ -1,10 +1,11 @@
 import re
 import threading
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, NoReturn, get_args
 
@@ -19,7 +20,16 @@ from whichsdk.detect.deps import compare_dependencies
 from whichsdk.detect.imports import adds_source, find_imports
 from whichsdk.detect.transcript import read_transcript
 from whichsdk.detect.verdict import Detection, Verdict, judge
-from whichsdk.sandbox import IMAGE, Sandbox, SandboxError, remove_container, start_sandbox
+from whichsdk.report import build_report, render_html, report_json
+from whichsdk.sandbox import (
+    IMAGE,
+    Sandbox,
+    SandboxError,
+    check_docker,
+    remove_container,
+    running_containers,
+    start_sandbox,
+)
 from whichsdk.spec import NAME_PATTERN, AgentSpec, StudySpec, load_study
 from whichsdk.store import Run, Spend, Status, Store
 
@@ -103,6 +113,7 @@ def run_one(
     """Run one task of a study once and save the result to SQLite."""
     spec = _load_spec(study_file)
     _check_selection(spec, task, repeat)
+    _require_docker()
     agent_spec = spec.agents[0]
     agent = _make_agent(agent_spec, spec.run_budget_usd)
     with closing(Store(DB_PATH)) as store:
@@ -132,16 +143,20 @@ def run_study(
 ) -> None:
     """Run every task, repeat and agent of a study that is not done yet.
 
-    Failed runs are skipped unless --retry-failed is passed. Ctrl-C marks the runs in flight failed.
+    Failed runs are skipped unless --retry-failed is passed. A run left running by a crash is
+    marked failed first. Ctrl-C marks the runs in flight failed.
     """
     spec = _load_spec(study_file)
     _check_starter(spec)
     with closing(Store(DB_PATH)) as store:
         store.save_study(spec.name, study_file.read_text(encoding="utf-8"))
+        _fail_dead_attempts(store, spec)
         states = _slot_states(store, spec)
         queue = _to_run(states, retry_failed)
+        if queue:
+            _require_docker()
         typer.echo(f"{spec.name}: {len(queue)} run(s) to start, up to {concurrency} at a time.")
-        failed = sum(state in ("failed", "running") for _, state in states)
+        failed = sum(state == "failed" for _, state in states)
         if failed and not retry_failed:
             typer.echo(f"Skipping {failed} failed run(s); pass --retry-failed to run them again.")
         if not queue:
@@ -205,6 +220,33 @@ def detect(
     typer.echo("\n".join(lines) or f"No saved runs of {spec.name} to detect.")
 
 
+@app.command("report")
+def report_study(
+    study_file: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    out: Annotated[
+        Path, typer.Option(help="Where to write the HTML report; the JSON goes next to it.")
+    ] = Path("report.html"),
+) -> None:
+    """Write a self-contained HTML report of a study's results, and the same numbers as JSON."""
+    spec = _load_spec(study_file)
+    if out.suffix == ".json":
+        _fail("--out is the HTML file; the JSON is written next to it with the same name.")
+    if not DB_PATH.is_file():
+        _fail(f"There is no {DB_PATH} here; run this from the directory the study was run in.")
+    with closing(Store(DB_PATH)) as store:
+        outcomes = store.study_outcomes(spec.name)
+        attempts = store.study_attempts(spec.name)
+        spend = store.study_spend(spec.name, spec.run_budget_usd)
+    if not outcomes:
+        _fail(f"No run of {spec.name} has results yet, so there is nothing to report.")
+    report = build_report(spec, outcomes, attempts, spend, datetime.now(UTC).date())
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_html(report), encoding="utf-8", newline="\n")
+    json_path = out.with_suffix(".json")
+    json_path.write_text(report_json(report), encoding="utf-8", newline="\n")
+    typer.echo(f"Wrote {out} and {json_path} for {report.total_runs} run(s).")
+
+
 def _load_spec(path: Path) -> StudySpec:
     try:
         return load_study(path)
@@ -225,6 +267,29 @@ def _check_starter(spec: StudySpec) -> None:
         _fail(f"Starter template {spec.starter_template} is not a directory.")
 
 
+def _require_docker() -> None:
+    try:
+        check_docker()
+    except SandboxError as error:
+        _fail(str(error))
+
+
+def _fail_dead_attempts(store: Store, spec: StudySpec) -> None:
+    running = [run for run in store.study_attempts(spec.name) if run.status == "running"]
+    if not running:
+        return
+    _require_docker()
+    try:
+        alive = running_containers()
+    except SandboxError as error:
+        _fail(f"Cannot list the running containers: {error}")
+    dead = [run for run in running if _container_name(run) not in alive]
+    for run in dead:
+        store.fail_running(run, "its process ended and no container is running it")
+    if dead:
+        typer.echo(f"Marked {len(dead)} attempt(s) failed: left running, with no container.")
+
+
 def _make_agent(agent_spec: AgentSpec, run_budget_usd: float) -> Agent:
     try:
         return ClaudeCodeAgent(ENV_FILE, agent_spec.model, run_budget_usd)
@@ -242,8 +307,8 @@ def _spend_summary(spec: StudySpec, spend: Spend) -> str:
     return summary
 
 
-def _over_budget(spec: StudySpec, spend: Spend) -> bool:
-    return spend.total_usd + spec.run_budget_usd > spec.study_budget_usd
+def _over_budget(spec: StudySpec, spend: Spend, starting: int = 0) -> bool:
+    return spend.total_usd + (starting + 1) * spec.run_budget_usd > spec.study_budget_usd
 
 
 def _check_budget(store: Store, spec: StudySpec) -> None:
@@ -275,7 +340,7 @@ def _slot_states(store: Store, spec: StudySpec) -> list[tuple[_Slot, Status]]:
 
 
 def _to_run(states: list[tuple[_Slot, Status]], retry_failed: bool) -> list[_Slot]:
-    wanted = {"pending", "failed", "running"} if retry_failed else {"pending"}
+    wanted = {"pending", "failed"} if retry_failed else {"pending"}
     return [slot for slot, state in states if state in wanted]
 
 
@@ -293,7 +358,11 @@ def _run_queue(
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         try:
             while queue or in_flight:
-                while queue and len(in_flight) < concurrency and _may_start(store, spec):
+                while (
+                    queue
+                    and len(in_flight) < concurrency
+                    and _may_start(store, spec, in_flight.values())
+                ):
                     run = _start(store, spec, queue.pop(0))
                     in_flight[pool.submit(_work, spec, run, agents[run.agent], interrupted)] = run
                 if not in_flight:
@@ -306,12 +375,17 @@ def _run_queue(
                     reported += final.cost_usd or 0.0
                     typer.echo(_finished_line(final, future.result(), reported))
         finally:
-            _stop_in_flight(in_flight, interrupted)
+            _stop_in_flight(store, in_flight, interrupted)
     return finished, len(queue)
 
 
-def _may_start(store: Store, spec: StudySpec) -> bool:
-    return not _over_budget(spec, store.study_spend(spec.name, spec.run_budget_usd))
+def _may_start(store: Store, spec: StudySpec, in_flight: Iterable[Run]) -> bool:
+    # A run launched here has no spend on record until its agent starts, so it is held back at the
+    # full run budget until then. Counting these before the spend means a run whose agent starts
+    # in between is counted twice, never missed.
+    starting = sum(store.get_run(run.id, run.attempt).agent_started_at is None for run in in_flight)
+    spend = store.study_spend(spec.name, spec.run_budget_usd)
+    return not _over_budget(spec, spend, starting)
 
 
 def _start(store: Store, spec: StudySpec, slot: _Slot) -> Run:
@@ -329,12 +403,21 @@ def _work(spec: StudySpec, run: Run, agent: Agent, interrupted: threading.Event)
     return _describe(detection)
 
 
-def _stop_in_flight(in_flight: Mapping[Future[str], Run], interrupted: threading.Event) -> None:
+def _stop_in_flight(
+    store: Store, in_flight: Mapping[Future[str], Run], interrupted: threading.Event
+) -> None:
     interrupted.set()
+    unremovable: set[str] = set()
     while not all(future.done() for future in in_flight):
         for future, run in in_flight.items():
-            if not future.done():
-                remove_container(_container_name(run))
+            if future.done():
+                continue
+            problem = remove_container(_container_name(run))
+            if problem is not None and run.id not in unremovable:
+                unremovable.add(run.id)
+                store.add_event(
+                    run, "cleanup_failed", {"container": _container_name(run), "message": problem}
+                )
         wait(in_flight, timeout=POLL_SECONDS)
 
 
@@ -446,8 +529,11 @@ def _save_changes(box: Sandbox, run_dir: Path) -> None:
 def _detect_attempt(spec: StudySpec, attempt_dir: Path, finished: bool) -> Detection:
     owners = spec.package_owners()
     diff = attempt_dir / CHANGES_NAME
-    changes = compare_dependencies(attempt_dir / BASELINE_DIR, attempt_dir, owners, PACKAGE_FILES)
-    findings = read_transcript(attempt_dir / TRANSCRIPT_NAME, owners)
+    helpers = spec.helper_packages
+    changes = compare_dependencies(
+        attempt_dir / BASELINE_DIR, attempt_dir, owners, PACKAGE_FILES, helpers
+    )
+    findings = read_transcript(attempt_dir / TRANSCRIPT_NAME, owners, helpers)
     return judge(changes, find_imports(diff, owners), adds_source(diff), findings, finished)
 
 

@@ -1,6 +1,7 @@
 import _thread
 import json
 import sqlite3
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -12,7 +13,7 @@ import pytest
 import yaml
 from typer.testing import CliRunner, Result
 
-from whichsdk import cli
+from whichsdk import cli, sandbox
 from whichsdk.agents.base import Agent, AgentResult
 from whichsdk.detect.verdict import Detection
 from whichsdk.sandbox import ExecResult, Sandbox, SandboxError
@@ -123,6 +124,9 @@ class Harness:
         self.sandboxes: list[str] = []
         self.removed: list[str] = []
         self.released: dict[str, threading.Event] = {}
+        self.release_after = 1
+        self.unremovable: dict[str, str] = {}
+        self.live: set[str] = set()
         self.broken: set[str] = set()
         self.sandbox_delay = 0.0
         self.on_sandbox: Callable[[str], None] | None = None
@@ -147,10 +151,14 @@ class Harness:
             self.released[name] = threading.Event()
         yield Workspace(name)
 
-    def remove_container(self, name: str) -> None:
+    def remove_container(self, name: str) -> str | None:
         self.removed.append(name)
-        if name in self.released:
+        if name in self.released and self.removed.count(name) >= self.release_after:
             self.released[name].set()
+        return self.unremovable.get(name)
+
+    def running_containers(self) -> set[str]:
+        return set(self.live)
 
     def hold_first(self, count: int, seconds: float = 0.3) -> None:
         barrier = threading.Barrier(count, timeout=10)
@@ -187,6 +195,14 @@ def db(sql: str) -> list[tuple[object, ...]]:
         return connection.execute(sql).fetchall()
 
 
+def leave_running(*tasks: int) -> None:
+    """Leave an attempt of each task running with no agent started, as a crash would."""
+    with closing(Store(cli.DB_PATH)) as store:
+        store.save_study("demo", "name: demo")
+        for task in tasks:
+            store.start_run(store.next_attempt("demo", task, "claude_code", 0), "test-model")
+
+
 def count_running() -> int:
     [(count,)] = db("SELECT COUNT(*) FROM runs WHERE status = 'running'")
     return int(str(count))
@@ -201,6 +217,7 @@ def harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Harness:
     monkeypatch.setattr(cli, "ClaudeCodeAgent", harness.make_agent)
     monkeypatch.setattr(cli, "start_sandbox", harness.start_sandbox)
     monkeypatch.setattr(cli, "remove_container", harness.remove_container)
+    monkeypatch.setattr(cli, "running_containers", harness.running_containers)
     monkeypatch.setattr(cli, "POLL_SECONDS", 0.01)
     return harness
 
@@ -235,6 +252,18 @@ def test_every_task_and_repeat_is_run_repeat_by_repeat_with_one_line_for_each(
     ]
 
 
+def test_a_run_that_adds_only_the_study_helpers_is_no_sdk_with_the_helpers_recorded(
+    harness: Harness,
+) -> None:
+    write_study(tasks=["alpha"], repeats=1, helper_packages=["jose"])
+    harness.script("alpha", INSTALLS_JOSE)
+
+    outcome = harness.run()
+
+    assert "task 0 repeat 0 claude_code: no_sdk, cost $0.20" in outcome.output
+    assert db("SELECT verdict, added FROM results") == [("no_sdk", '{"jose": null}')]
+
+
 def test_each_run_gets_its_own_prompt_container_and_files(harness: Harness) -> None:
     harness.script("alpha", BUILDS_ITS_OWN, BUILDS_ITS_OWN)
     harness.script("beta", BUILDS_ITS_OWN, BUILDS_ITS_OWN)
@@ -264,9 +293,11 @@ def test_a_second_run_has_nothing_to_do_and_needs_neither_a_key_nor_a_container(
     sandboxes = list(harness.sandboxes)
 
     def forbidden(*args: object) -> None:
-        pytest.fail("nothing was left to run, so no agent should be made")
+        pytest.fail("nothing was left to run, so no agent should be made and docker not asked")
 
     monkeypatch.setattr(cli, "ClaudeCodeAgent", forbidden)
+    monkeypatch.setattr(cli, "check_docker", forbidden)
+    monkeypatch.setattr(cli, "running_containers", forbidden)
     again = harness.run()
 
     assert again.exit_code == 0, again.output
@@ -351,7 +382,9 @@ def test_a_run_left_pending_by_a_refused_retry_is_started_not_replaced(harness: 
     assert db("SELECT id, attempt, status FROM runs") == [(run_id(0, 0), 1, "done")]
 
 
-def test_a_run_left_running_by_a_crash_counts_as_failed(harness: Harness) -> None:
+def test_a_run_left_running_by_a_crash_is_failed_first_and_then_retried_by_retry_failed(
+    harness: Harness,
+) -> None:
     write_study(tasks=["alpha"], repeats=1)
     harness.script("alpha", BUILDS_ITS_OWN)
     with closing(Store(cli.DB_PATH)) as store:
@@ -363,18 +396,145 @@ def test_a_run_left_running_by_a_crash_counts_as_failed(harness: Harness) -> Non
     plain = harness.run()
 
     assert plain.output.splitlines() == [
+        "Marked 1 attempt(s) failed: left running, with no container.",
         "demo: 0 run(s) to start, up to 1 at a time.",
         "Skipping 1 failed run(s); pass --retry-failed to run them again.",
     ]
-    assert db("SELECT attempt, status FROM runs") == [(1, "running")]
+    assert db("SELECT attempt, status FROM runs") == [(1, "failed")]
 
     retried = harness.run("--retry-failed")
 
     assert retried.exit_code == 0, retried.output
     assert db("SELECT attempt, status FROM runs ORDER BY attempt") == [(1, "failed"), (2, "done")]
-    assert db("SELECT attempt, kind FROM events WHERE kind = 'run_interrupted'") == [
-        (1, "run_interrupted")
+    assert db("SELECT attempt FROM events WHERE kind = 'run_interrupted'") == [(1,)]
+
+
+def test_attempts_left_running_by_a_crash_are_failed_by_the_next_run_and_status_agrees(
+    harness: Harness,
+) -> None:
+    write_study(tasks=["alpha", "beta", "gamma"], repeats=1)
+    leave_running(0, 1, 2)
+
+    before = harness.status()
+
+    assert before.output.splitlines()[1:3] == [
+        "done 0, failed 0, running 3, pending 0",
+        "$0.00 of $20.00 spent on demo",
     ]
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 0, outcome.output
+    assert outcome.output.splitlines() == [
+        "Marked 3 attempt(s) failed: left running, with no container.",
+        "demo: 0 run(s) to start, up to 1 at a time.",
+        "Skipping 3 failed run(s); pass --retry-failed to run them again.",
+    ]
+    assert db("SELECT attempt, status FROM runs ORDER BY id") == [(1, "failed")] * 3
+    assert (
+        db("SELECT json_extract(payload, '$.message') FROM events WHERE kind = 'run_interrupted'")
+        == [("its process ended and no container is running it",)] * 3
+    )
+    after = harness.status()
+    assert after.output.splitlines()[1:3] == [
+        "done 0, failed 3, running 0, pending 0",
+        "$0.00 of $20.00 spent on demo",
+    ]
+
+
+def test_an_attempt_whose_container_is_still_running_is_left_alone(harness: Harness) -> None:
+    write_study(tasks=["alpha", "beta"], repeats=1)
+    leave_running(0, 1)
+    harness.live.add(f"whichsdk-{run_id(1, 0)}")
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 0, outcome.output
+    assert outcome.output.splitlines() == [
+        "Marked 1 attempt(s) failed: left running, with no container.",
+        "demo: 0 run(s) to start, up to 1 at a time.",
+        "Skipping 1 failed run(s); pass --retry-failed to run them again.",
+    ]
+    assert db("SELECT id, status FROM runs ORDER BY id") == [
+        (run_id(0, 0), "failed"),
+        (run_id(1, 0), "running"),
+    ]
+    assert harness.status().output.splitlines()[1] == "done 0, failed 1, running 1, pending 0"
+
+
+def test_retry_failed_does_not_start_an_attempt_whose_container_is_running(
+    harness: Harness,
+) -> None:
+    write_study(tasks=["alpha", "beta"], repeats=1)
+    harness.script("beta", BUILDS_ITS_OWN)
+    leave_running(0)
+    harness.live.add(f"whichsdk-{run_id(0, 0)}")
+
+    outcome = harness.run("--retry-failed")
+
+    assert outcome.exit_code == 0, outcome.output
+    assert harness.agent.started == ["beta"]
+    assert db("SELECT id, attempt, status FROM runs ORDER BY id") == [
+        (run_id(0, 0), 1, "running"),
+        (run_id(1, 0), 1, "done"),
+    ]
+
+
+def test_containers_that_cannot_be_listed_stop_the_run_with_one_line(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    leave_running(0)
+
+    def cannot_list() -> set[str]:
+        raise SandboxError("docker ps exited 1: the daemon went away")
+
+    monkeypatch.setattr(cli, "running_containers", cannot_list)
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 1
+    assert outcome.output == (
+        "Cannot list the running containers: docker ps exited 1: the daemon went away\n"
+    )
+    assert db("SELECT status FROM runs") == [("running",)]
+
+
+def test_a_docker_that_is_not_on_the_path_stops_a_run_with_one_line_before_anything_is_queued(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr(cli, "check_docker", sandbox.check_docker)
+    monkeypatch.setattr(sandbox.subprocess, "run", missing)
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 1
+    assert outcome.output == "Docker is not on PATH.\n"
+    assert isinstance(outcome.exception, SystemExit)
+    assert harness.sandboxes == [] and harness.agents_built == []
+    assert db("SELECT COUNT(*) FROM runs") == [(0,)]
+
+
+def test_a_docker_daemon_that_does_not_answer_is_named_in_one_line(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def daemon_down(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(args, 1, stdout=b"error during connect")
+
+    monkeypatch.setattr(cli, "check_docker", sandbox.check_docker)
+    monkeypatch.setattr(sandbox.subprocess, "run", daemon_down)
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 1
+    assert outcome.output == (
+        "The Docker daemon does not answer `docker info`. Start Docker and retry.\n"
+    )
+    assert isinstance(outcome.exception, SystemExit)
+    assert harness.sandboxes == [] and harness.agents_built == []
+    assert db("SELECT COUNT(*) FROM runs") == [(0,)]
 
 
 def test_no_run_starts_once_one_more_could_take_the_study_over_its_budget(
@@ -641,7 +801,7 @@ def test_a_container_made_after_ctrl_c_is_still_removed(harness: Harness) -> Non
     harness.sandbox_delay = 0.2
 
     def press_ctrl_c_while_the_container_is_starting(name: str) -> None:
-        time.sleep(0.05)  
+        time.sleep(0.05)
         _thread.interrupt_main()
 
     harness.on_sandbox = press_ctrl_c_while_the_container_is_starting
@@ -652,6 +812,61 @@ def test_a_container_made_after_ctrl_c_is_still_removed(harness: Harness) -> Non
     assert outcome.exit_code == 130
     assert harness.removed.count(f"whichsdk-{run_id(0, 0)}") > 1
     assert db("SELECT id, status FROM runs") == [(run_id(0, 0), "failed")]
+
+
+def test_a_container_that_cannot_be_removed_is_recorded_and_the_original_error_still_surfaces(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_study(tasks=["a", "b"], repeats=1)
+    harness.script("a", BUILDS_ITS_OWN)
+    harness.script("b", BUILDS_ITS_OWN)
+    stuck = f"whichsdk-{run_id(1, 0)}"
+    harness.unremovable[stuck] = "Cannot connect to the Docker daemon"
+    real_detect = cli._detect_attempt
+
+    def detect_that_breaks_for_the_first(
+        spec: StudySpec, attempt_dir: Path, finished: bool
+    ) -> Detection:
+        if "-t0-" in attempt_dir.name:
+            raise RuntimeError("a detector bug")
+        return real_detect(spec, attempt_dir, finished)
+
+    def wait_to_be_removed(box: Sandbox, number: int) -> None:
+        if "-t1-" in box.name:
+            assert harness.released[box.name].wait(timeout=10)
+
+    monkeypatch.setattr(cli, "_detect_attempt", detect_that_breaks_for_the_first)
+    harness.agent.on_start = wait_to_be_removed
+
+    outcome = harness.run("--concurrency", "2")
+
+    assert isinstance(outcome.exception, RuntimeError)
+    assert db(
+        "SELECT run_id, json_extract(payload, '$.container'), json_extract(payload, '$.message') "
+        "FROM events WHERE kind = 'cleanup_failed'"
+    ) == [(run_id(1, 0), stuck, "Cannot connect to the Docker daemon")]
+
+
+def test_a_failed_removal_is_recorded_once_however_often_it_is_tried(harness: Harness) -> None:
+    write_study(tasks=["a"], repeats=1)
+    harness.script("a", PICKS_CLERK)
+    stuck = f"whichsdk-{run_id(0, 0)}"
+    harness.unremovable[stuck] = "Cannot connect to the Docker daemon"
+    harness.release_after = 3
+
+    def press_ctrl_c_and_wait_to_be_removed(box: Sandbox, number: int) -> None:
+        time.sleep(0.05)
+        _thread.interrupt_main()
+        assert harness.released[box.name].wait(timeout=10)
+
+    harness.agent.on_start = press_ctrl_c_and_wait_to_be_removed
+
+    outcome = harness.run()
+
+    assert outcome.exit_code == 130
+    assert harness.removed.count(stuck) >= 3
+    assert db("SELECT run_id FROM events WHERE kind = 'cleanup_failed'") == [(run_id(0, 0),)]
+    assert db("SELECT status FROM runs") == [("failed",)]
 
 
 def test_a_run_that_breaks_stops_the_others_that_are_in_flight(
