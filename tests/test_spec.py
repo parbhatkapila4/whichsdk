@@ -182,7 +182,7 @@ def test_init_template_is_a_valid_study(tmp_path: Path) -> None:
 def test_shipped_study_is_valid() -> None:
     spec = load_study(REPO_ROOT / "studies" / "auth-nextjs.yaml")
 
-    assert (spec.name, spec.repeats) == ("auth-nextjs-v2", 5)
+    assert (spec.name, spec.repeats) == ("auth-nextjs-v3", 5)
     assert {competitor.name for competitor in spec.competitors} == {
         "Clerk",
         "Better Auth",

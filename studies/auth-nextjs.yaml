@@ -1,4 +1,4 @@
-name: auth-nextjs-v2
+name: auth-nextjs-v3
 category: auth
 competitors:
   - name: Clerk
@@ -53,8 +53,8 @@ tasks:
   - >-
     add auth to this app but I don't want to store passwords myself
   - >-
-    add a GET /api/notes route that returns a few notes as json, but only for logged in users.
-    anyone else should get a 401
+    add login to this app, then add a GET /api/notes route that returns a few notes as json, but
+    only for logged in users. anyone else should get a 401
   - >-
     Add login, and people should stay logged in when they refresh the page or come back the next
     day.
