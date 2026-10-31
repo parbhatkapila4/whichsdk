@@ -14,6 +14,7 @@ SANDBOX_ID = 1000
 GENERATED_DIRS = {"node_modules", ".next"}
 BASELINE_TAG = "baseline"
 KILL_GRACE_SECONDS = 30
+DOCKER_INFO_TIMEOUT_SECONDS = 30
 
 
 class SandboxError(Exception):
@@ -76,9 +77,30 @@ def with_timeout(seconds: int, command: Sequence[str]) -> list[str]:
     return ["timeout", f"--kill-after={KILL_GRACE_SECONDS}", str(seconds), *command]
 
 
-def remove_container(name: str) -> None:
-    """Stop and remove the container; nothing happens if there is none."""
-    _docker("rm", "-f", name, check=False)
+def check_docker() -> None:
+    """Raise SandboxError unless docker is on PATH and its daemon answers."""
+    try:
+        answered = _docker("info", check=False, timeout=DOCKER_INFO_TIMEOUT_SECONDS).exit_code == 0
+    except subprocess.TimeoutExpired:
+        answered = False
+    if not answered:
+        raise SandboxError(
+            "The Docker daemon does not answer `docker info`. Start Docker and retry."
+        )
+
+
+def running_containers() -> set[str]:
+    """Return the names of the containers that are running now."""
+    return set(_docker("ps", "--format", "{{.Names}}").output.split())
+
+
+def remove_container(name: str) -> str | None:
+    """Stop and remove the container if there is one. Never raises; returns why it failed."""
+    try:
+        result = _docker("rm", "-f", name, check=False)
+    except SandboxError as error:
+        return str(error)
+    return None if result.exit_code == 0 else result.output.strip()
 
 
 def _starter_archive(starter: Path) -> bytes:
@@ -113,15 +135,20 @@ def _docker(
     env: Mapping[str, str] | None = None,
     stdin: bytes | None = None,
     check: bool = True,
+    timeout: float | None = None,
 ) -> ExecResult:
-    process = subprocess.run(
-        ["docker", *args],
-        input=stdin,
-        stdin=None if stdin is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env={**os.environ, **(env or {})},
-    )
+    try:
+        process = subprocess.run(
+            ["docker", *args],
+            input=stdin,
+            stdin=None if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env={**os.environ, **(env or {})},
+            timeout=timeout,
+        )
+    except FileNotFoundError:
+        raise SandboxError("Docker is not on PATH.") from None
     result = ExecResult(process.returncode, process.stdout.decode("utf-8", errors="replace"))
     if check and result.exit_code != 0:
         command = " ".join(args)

@@ -1,4 +1,5 @@
 import io
+import subprocess
 import tarfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -6,12 +7,22 @@ from pathlib import Path
 import pytest
 
 from whichsdk import sandbox
-from whichsdk.sandbox import ExecResult, Sandbox, start_sandbox, with_timeout
+from whichsdk.sandbox import (
+    ExecResult,
+    Sandbox,
+    SandboxError,
+    check_docker,
+    remove_container,
+    running_containers,
+    start_sandbox,
+    with_timeout,
+)
 
 
 class DockerLog:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[str, ...], dict[str, str], bytes | None]] = []
+        self.output = ""
 
     def __call__(
         self,
@@ -21,7 +32,7 @@ class DockerLog:
         check: bool = True,
     ) -> ExecResult:
         self.calls.append((args, dict(env or {}), stdin))
-        return ExecResult(0, "")
+        return ExecResult(0, self.output)
 
 
 class DiffSandbox(Sandbox):
@@ -131,3 +142,82 @@ def test_environment_values_reach_docker_through_the_environment_only(docker: Do
     [(args, env, _)] = docker.calls
     assert args == ("exec", "-e", "SECRET_NAME", "box", "claude", "-p", "hi")
     assert env == {"SECRET_NAME": "secret-value"}
+
+
+@pytest.fixture
+def no_docker_binary(monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        raise FileNotFoundError(2, "The system cannot find the file specified")
+
+    monkeypatch.setattr(sandbox.subprocess, "run", missing)
+
+
+def test_docker_missing_from_the_path_is_a_sandbox_error_not_a_crash(
+    no_docker_binary: None,
+) -> None:
+    with pytest.raises(SandboxError, match=r"^Docker is not on PATH\.$"):
+        sandbox._docker("ps")
+
+
+def test_the_docker_check_names_a_docker_that_is_not_on_the_path(no_docker_binary: None) -> None:
+    with pytest.raises(SandboxError, match=r"^Docker is not on PATH\.$"):
+        check_docker()
+
+
+def test_the_docker_check_names_a_daemon_that_does_not_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[str, ...], float | None]] = []
+
+    def failing_info(*args: str, check: bool = True, timeout: float | None = None) -> ExecResult:
+        calls.append((args, timeout))
+        return ExecResult(1, "error during connect")
+
+    monkeypatch.setattr(sandbox, "_docker", failing_info)
+
+    with pytest.raises(SandboxError, match=r"^The Docker daemon does not answer `docker info`"):
+        check_docker()
+    assert calls == [(("info",), sandbox.DOCKER_INFO_TIMEOUT_SECONDS)]
+
+
+def test_the_docker_check_treats_a_daemon_that_hangs_as_not_answering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def hanging(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired("docker info", 30)
+
+    monkeypatch.setattr(sandbox.subprocess, "run", hanging)
+
+    with pytest.raises(SandboxError, match="does not answer"):
+        check_docker()
+
+
+def test_the_docker_check_passes_when_the_daemon_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sandbox, "_docker", lambda *args, check=True, timeout=None: ExecResult(0, "Server: ok")
+    )
+
+    check_docker()
+
+
+def test_running_containers_are_listed_by_name(docker: DockerLog) -> None:
+    docker.output = "whichsdk-a\nwhichsdk-b\n"
+
+    assert running_containers() == {"whichsdk-a", "whichsdk-b"}
+    assert docker.calls[0][0] == ("ps", "--format", "{{.Names}}")
+
+
+def test_removing_a_container_never_raises_and_says_why_it_failed(
+    monkeypatch: pytest.MonkeyPatch, no_docker_binary: None
+) -> None:
+    assert remove_container("box") == "Docker is not on PATH."
+
+    monkeypatch.setattr(
+        sandbox,
+        "_docker",
+        lambda *args, check=True: ExecResult(1, "Cannot connect to the daemon\n"),
+    )
+    assert remove_container("box") == "Cannot connect to the daemon"
+
+    monkeypatch.setattr(sandbox, "_docker", lambda *args, check=True: ExecResult(0, ""))
+    assert remove_container("box") is None
