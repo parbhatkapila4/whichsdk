@@ -15,3 +15,5 @@ The numbers on the page are the results of the study `auth-nextjs-v3`: 50 runs o
 The three runs in the hero are real runs of that study. The task text comes from `studies/auth-nextjs.yaml`. Each quote is copied from the run's `transcript.jsonl`. Each evidence line is copied from the run's `changes.diff`, and "same as the baseline" means the run's `package.json` is identical to its baseline copy.
 
 Fonts load from Google Fonts. The two sky images in `img` were rendered with a WebGL shader. They are not photographs.
+
+The page uses DataFast for visitor counts.
