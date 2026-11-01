@@ -1,0 +1,28 @@
+# whichsdk
+
+> whichsdk is an open source command line tool (MIT license) that runs a coding agent on a real task in a clean container and saves what it installs: the transcript, the package files, the code changes and a build log. Detectors then decide which SDK, if any, each run picked.
+
+## First study: which auth SDK does Claude Code install?
+
+- Study name: auth-nextjs-v3. It ran on 2026-10-31.
+- Setup: 10 auth tasks for a bare Next.js starter, 5 runs each, 50 runs in total. The agent was Claude Code 2.1.310 with the model claude-sonnet-5-5. No task names an SDK. The study tracked 8 SDKs: Auth.js, Clerk, Better Auth, Supabase Auth, Auth0, WorkOS, Kinde and Firebase Auth.
+- Result: Claude Code added no auth SDK in 40 of 50 runs (80%, 95% Wilson range 67% to 89%). It picked Auth.js in the other 10 runs (20%, range 11% to 33%): all 5 runs of task 1 and all 5 runs of task 6. Task 1 asked for sign in with Google or GitHub. Task 6 asked for auth without storing passwords. The other 7 SDKs were picked in 0 of 50 runs (range 0% to 7%). All 50 builds passed. The study cost 5.13 USD.
+- Limits: one agent (Claude Code), one model, one Claude Code version, one bare Next.js starter, and 10 tasks written by the author. A bare starter may itself push the agent toward hand-built auth. These numbers describe Claude Code in this study, not coding agents in general.
+
+## Run it
+
+You need Python 3.11 or newer, uv, Docker with Linux containers and an Anthropic API key. Run every command from the repo root. The run commands call the API and cost money.
+
+1. Build the sandbox image: docker build -f docker/Dockerfile -t whichsdk-sandbox templates/nextjs-starter
+2. Put ANTHROPIC_API_KEY=your-key-here in a file named .env in the repo root.
+3. Run one task: uv run whichsdk run-one studies/auth-nextjs.yaml --task 0
+4. Run the whole study: uv run whichsdk run studies/auth-nextjs.yaml --concurrency 3
+5. Count the verdicts: uv run whichsdk status studies/auth-nextjs.yaml
+
+## Links
+
+- Page: https://whichsdk.parbhat.dev/
+- Repository: https://github.com/parbhatkapila4/whichsdk
+- README: https://github.com/parbhatkapila4/whichsdk/blob/main/README.md
+- Study file: https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml
+- Author: https://parbhat.dev

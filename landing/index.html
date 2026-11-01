@@ -3,15 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>whichsdk: which auth SDK does Claude Code install?</title>
-<meta name="description" content="In a study of 50 runs, Claude Code added no auth SDK in 40 and picked Auth.js in 10. whichsdk saves the transcript, diff and build log of every run.">
+<title>Which auth SDK does Claude Code install? | whichsdk</title>
+<meta name="description" content="Claude Code added no auth SDK in 40 of 50 runs and picked Auth.js in the other 10. whichsdk is an open source CLI that records what a coding agent installs.">
+<link rel="canonical" href="https://whichsdk.parbhat.dev/">
+<meta name="author" content="Parbhat Kapila">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f6f7f8">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="whichsdk">
-<meta property="og:title" content="whichsdk: which auth SDK does Claude Code install?">
-<meta property="og:description" content="In a study of 50 runs, Claude Code added no auth SDK in 40 and picked Auth.js in 10. whichsdk saves the transcript, diff and build log of every run.">
-<meta name="twitter:card" content="summary">
+<meta property="og:title" content="Which auth SDK does Claude Code install? | whichsdk">
+<meta property="og:description" content="Claude Code added no auth SDK in 40 of 50 runs and picked Auth.js in the other 10. whichsdk is an open source CLI that records what a coding agent installs.">
+<meta property="og:url" content="https://whichsdk.parbhat.dev/">
+<meta property="og:image" content="https://whichsdk.parbhat.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Which auth SDK does Claude Code install? 80% of 50 runs added no SDK and 20% picked Auth.js.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Which auth SDK does Claude Code install? | whichsdk">
+<meta name="twitter:description" content="Claude Code added no auth SDK in 40 of 50 runs and picked Auth.js in the other 10. whichsdk is an open source CLI that records what a coding agent installs.">
+<meta name="twitter:image" content="https://whichsdk.parbhat.dev/og.png">
+<meta name="twitter:image:alt" content="Which auth SDK does Claude Code install? 80% of 50 runs added no SDK and 20% picked Auth.js.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" as="image" href="img/sky-master.webp" fetchpriority="high">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,6 +35,64 @@
 </script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@300..700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": [
+        "SoftwareApplication",
+        "SoftwareSourceCode"
+      ],
+      "@id": "https://whichsdk.parbhat.dev/#software",
+      "name": "whichsdk",
+      "description": "whichsdk is a command line tool that runs a coding agent on a real task in a clean container and saves what it installs: the transcript, the package files, the code changes and a build log. Detectors then decide which SDK, if any, each run picked.",
+      "url": "https://whichsdk.parbhat.dev/",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Any OS with Python 3.11 or newer and Docker with Linux containers",
+      "softwareRequirements": "Python 3.11 or newer, uv, Docker with Linux containers and an Anthropic API key",
+      "programmingLanguage": "Python",
+      "codeRepository": "https://github.com/parbhatkapila4/whichsdk",
+      "license": "https://github.com/parbhatkapila4/whichsdk/blob/main/LICENSE",
+      "author": {
+        "@type": "Person",
+        "name": "Parbhat Kapila",
+        "url": "https://parbhat.dev"
+      },
+      "isAccessibleForFree": true,
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    },
+    {
+      "@type": "Dataset",
+      "@id": "https://whichsdk.parbhat.dev/#dataset",
+      "name": "auth-nextjs-v3: which auth SDK does Claude Code install?",
+      "description": "50 runs of Claude Code on 10 auth tasks for a bare Next.js starter, 5 runs per task, with claude-sonnet-5-5 in Claude Code 2.1.310. Claude Code added no auth SDK in 40 runs (80%) and picked Auth.js in 10 runs (20%), all on tasks 1 and 6. None of the other 7 SDKs in the study was picked. All 50 builds passed.",
+      "url": "https://whichsdk.parbhat.dev/",
+      "creator": {
+        "@type": "Person",
+        "name": "Parbhat Kapila",
+        "url": "https://parbhat.dev"
+      },
+      "license": "https://github.com/parbhatkapila4/whichsdk/blob/main/LICENSE",
+      "isBasedOn": "https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml",
+      "temporalCoverage": "2026-10-31",
+      "keywords": [
+        "Claude Code",
+        "auth SDK",
+        "Auth.js",
+        "coding agent",
+        "Next.js"
+      ],
+      "variableMeasured": "Verdict of each run: picked, installed_unused, multiple, other, no_sdk or undetermined",
+      "measurementTechnique": "Each run gives Claude Code one task in a clean container. Detectors compare the package files with a baseline copy, scan the code diff for imports of each SDK's packages and read the transcript for install commands."
+    }
+  ]
+}
+</script>
 </head>
 <body>
 <header class="nav" id="top">
