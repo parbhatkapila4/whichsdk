@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>whichsdk: which auth SDK does Claude Code install?</title>
-<meta name="description" content="Which SDK does a coding agent install when asked to add auth? whichsdk measures it and keeps the transcript that shows why. Every number on the page is sample data.">
+<meta name="description" content="In a study of 50 runs, Claude Code added no auth SDK in 40 and picked Auth.js in 10. whichsdk saves the transcript, diff and build log of every run.">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#f6f7f8">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="whichsdk">
 <meta property="og:title" content="whichsdk: which auth SDK does Claude Code install?">
-<meta property="og:description" content="Which SDK does a coding agent install when asked to add auth? whichsdk measures it and keeps the transcript that shows why. Every number on the page is sample data.">
+<meta property="og:description" content="In a study of 50 runs, Claude Code added no auth SDK in 40 and picked Auth.js in 10. whichsdk saves the transcript, diff and build log of every run.">
 <meta name="twitter:card" content="summary">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" as="image" href="img/sky-master.webp" fetchpriority="high">
@@ -20,19 +20,15 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="announce" role="region" aria-label="Sample data notice">
-  <div class="wrap announce-in"><span class="sample">Sample data</span><span>All results on this page are sample data. The study has not run yet.</span><a href="#results">See the chart</a></div>
-</div>
-
 <header class="nav" id="top">
   <div class="wrap nav-in">
     <a class="logo" href="#hero"><svg class="glyph" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect class="a" x="2" y="4" width="12" height="4.4" rx="1.2"/><rect class="b" x="2" y="9.8" width="20" height="4.4" rx="1.2"/><rect class="a" x="2" y="15.6" width="7" height="4.4" rx="1.2"/></svg>whichsdk</a>
-    <nav class="links" aria-label="Sections"><a href="#results">Results</a><a href="#switches">Switch events</a><a href="#how">How it works</a><a href="#verdicts">Verdicts</a><a href="#run">Run it</a></nav>
+    <nav class="links" aria-label="Sections"><a href="#results">Results</a><a href="#tasks">By task</a><a href="#how">How it works</a><a href="#verdicts">Verdicts</a><a href="#run">Run it</a></nav>
     <a class="pill pill-dark" href="https://github.com/parbhatkapila4/whichsdk">GitHub</a>
     <button class="menu-btn" type="button" data-menu-button aria-expanded="false" aria-controls="menu">Menu</button>
   </div>
   <nav id="menu" class="menu" data-menu hidden aria-label="Sections">
-    <a href="#results">Results</a><a href="#switches">Switch events</a><a href="#how">How it works</a><a href="#verdicts">Verdicts</a><a href="#run">Run it</a>
+    <a href="#results">Results</a><a href="#tasks">By task</a><a href="#how">How it works</a><a href="#verdicts">Verdicts</a><a href="#run">Run it</a>
   </nav>
 </header>
 
@@ -43,29 +39,29 @@
       <div class="hero-copy">
         <p class="chips"><span class="chip">Study 1</span><span class="chip">Auth for Next.js</span><span class="chip">Claude Code</span></p>
         <h1 id="hero-h">Which auth SDK does <span class="soft nb">Claude Code</span> install?</h1>
-        <p class="idea">A developer asks a coding agent to add auth. The agent picks the SDK. whichsdk measures which one it picks and keeps the transcript that shows why.</p>
-        <p class="finding"><span class="sample">Sample data</span>In 10 of 50 sample runs, Claude Code built auth by hand instead of picking an SDK.</p>
+        <p class="idea">A developer asks a coding agent to add auth. whichsdk runs that request in a clean container. It records which SDK gets installed, if any, and keeps the transcript.</p>
+        <p class="finding">In 40 of 50 runs, Claude Code added no auth SDK. In the other 10, it picked Auth.js.</p>
         <div class="actions">
           <a class="pill pill-dark" href="#results">View the study</a>
           <a class="pill pill-line" href="https://github.com/parbhatkapila4/whichsdk">GitHub</a>
         </div>
       </div>
-      <div class="sky stage" data-stage role="group" aria-roledescription="carousel" aria-label="Three sample runs and the bars they count toward">
-        <div class="sessions"><div class="sess on hand" role="group" aria-roledescription="slide" aria-label="Sample run 1 of 3: no_sdk" data-hits="built-it-by-hand"><header class="sess-head"><code class="rid">auth-nextjs-v2-t4-claude_code-r1</code><span class="tag">Illustrative sample</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>add email and password login, and a forgot password flow so people can set a new password from a link we email them</dd></div><div><dt>Claude Code</dt><dd>No library needed. I&#x27;ll write it myself.</dd></div><div><dt>Evidence</dt><dd class="mono" data-type><span class="l f">package.json</span><span class="l">same as the baseline</span><span class="l f">changes.diff</span><span class="l">+ export function getUser(req) { ... }</span></dd></div></dl><p class="sess-verdict"><span class="k">whichsdk run prints</span><code>task 4 repeat 1 claude_code: <b>no_sdk</b>, cost $0.22</code></p></div>
-          <div class="sess" role="group" aria-roledescription="slide" aria-label="Sample run 2 of 3: picked (Clerk)" data-hits="clerk"><header class="sess-head"><code class="rid">auth-nextjs-v2-t0-claude_code-r0</code><span class="tag">Illustrative sample</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>add login to this app</dd></div><div><dt>Claude Code</dt><dd>I&#x27;ll use Clerk for sign in.</dd></div><div><dt>Evidence</dt><dd class="mono" data-type><span class="l f">package.json</span><span class="l">+ &quot;@clerk/nextjs&quot;</span><span class="l f">changes.diff</span><span class="l">+ import { ... } from &quot;@clerk/nextjs&quot;</span></dd></div></dl><p class="sess-verdict"><span class="k">whichsdk run prints</span><code>task 0 repeat 0 claude_code: <b>picked (Clerk)</b>, cost $0.14</code></p></div>
-          <div class="sess" role="group" aria-roledescription="slide" aria-label="Sample run 3 of 3: picked (Clerk)" data-hits="better-auth clerk"><header class="sess-head"><code class="rid">auth-nextjs-v2-t4-claude_code-r3</code><span class="tag">Illustrative sample</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>add email and password login, and a forgot password flow so people can set a new password from a link we email them</dd></div><div><dt>Claude Code</dt><dd>Better Auth did not build. Switching to Clerk.</dd></div><div><dt>Transcript</dt><dd class="mono" data-type><span class="l">npm install better-auth</span><span class="l">npm uninstall better-auth</span><span class="l">npm install @clerk/nextjs</span></dd></div></dl><p class="sess-verdict"><span class="k">whichsdk run prints</span><code>task 4 repeat 3 claude_code: <b>picked (Clerk)</b>, cost $0.21</code></p></div></div>
-        <div class="bars-head"><span>Pick rate, 50 runs</span><span class="sample">Sample data</span></div>
-        <ol class="ucards focus" role="list" aria-label="The three tallest bars of the sample chart"><li class="ucard" data-key="clerk"><span class="un">Clerk</span><span class="ubar"><i style="--w:60.0%"></i></span><span class="uv">24%</span></li>
-          <li class="ucard hand hit" data-key="built-it-by-hand"><span class="un">Built it by hand</span><span class="ubar"><i style="--w:50.0%"></i></span><span class="uv">20%</span></li>
-          <li class="ucard" data-key="better-auth"><span class="un">Better Auth</span><span class="ubar"><i style="--w:40.0%"></i></span><span class="uv">16%</span></li></ol>
+      <div class="sky stage" data-stage role="group" aria-roledescription="carousel" aria-label="Three runs from the study and the bars they count toward">
+        <div class="sessions"><div class="sess on hand" role="group" aria-roledescription="slide" aria-label="Run 1 of 3: no_sdk" data-hits="no-sdk"><header class="sess-head"><code class="rid">auth-nextjs-v3-t0-claude_code-r0</code><span class="tag">no_sdk</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>add login to this app</dd></div><div><dt>Claude Code</dt><dd>I added no new packages.</dd></div><div><dt>Evidence</dt><dd class="mono" data-type><span class="l f">package.json</span><span class="l">same as the baseline</span><span class="l f">changes.diff</span><span class="l">+ return timingSafeEqual(ha, hb);</span></dd></div></dl><p class="sess-verdict"><span class="k">Saved result</span><code>verdict <b>no_sdk</b>, build passed</code></p></div>
+          <div class="sess" role="group" aria-roledescription="slide" aria-label="Run 2 of 3: picked (Auth.js)" data-hits="auth-js"><header class="sess-head"><code class="rid">auth-nextjs-v3-t1-claude_code-r0</code><span class="tag">picked (Auth.js)</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>I want people to sign in with their Google or GitHub account. Put the sign in buttons on the home page and show the user&#x27;s name once they&#x27;re signed in.</dd></div><div><dt>Claude Code</dt><dd>I&#x27;ll use Auth.js (<code>next-auth</code>) for this. First I&#x27;ll install it.</dd></div><div><dt>Evidence</dt><dd class="mono" data-type><span class="l f">package.json</span><span class="l">+ &quot;next-auth&quot;: &quot;^5.0.0-beta.32&quot;,</span><span class="l f">changes.diff</span><span class="l">+ import NextAuth from &quot;next-auth&quot;;</span></dd></div></dl><p class="sess-verdict"><span class="k">Saved result</span><code>verdict <b>picked (Auth.js)</b>, build passed</code></p></div>
+          <div class="sess hand" role="group" aria-roledescription="slide" aria-label="Run 3 of 3: no_sdk" data-hits="no-sdk"><header class="sess-head"><code class="rid">auth-nextjs-v3-t7-claude_code-r4</code><span class="tag">no_sdk</span></header><dl class="sess-rows"><div><dt>Task</dt><dd>add login to this app, then add a GET /api/notes route that returns a few notes as json, but only for logged in users. anyone else should get a 401</dd></div><div><dt>Claude Code</dt><dd>There was no auth library in the project, so I built it with Node&#x27;s <code>crypto</code> and no new dependencies.</dd></div><div><dt>Evidence</dt><dd class="mono" data-type><span class="l f">package.json</span><span class="l">same as the baseline</span><span class="l f">changes.diff</span><span class="l">+ import { createHmac, timingSafeEqual } from &quot;node:crypto&quot;;</span></dd></div></dl><p class="sess-verdict"><span class="k">Saved result</span><code>verdict <b>no_sdk</b>, build passed</code></p></div></div>
+        <div class="bars-head"><span>Pick rate, 50 runs</span></div>
+        <ol class="ucards focus" role="list" aria-label="Pick rate for no SDK, Auth.js and the 7 other SDKs"><li class="ucard hand hit" data-key="no-sdk"><span class="un">No SDK</span><span class="ubar"><i style="--w:80%"></i></span><span class="uv">80%</span></li>
+          <li class="ucard" data-key="auth-js"><span class="un">Auth.js</span><span class="ubar"><i style="--w:20%"></i></span><span class="uv">20%</span></li>
+          <li class="ucard" data-key="others"><span class="un">7 other SDKs</span><span class="ubar"><i style="--w:0%"></i></span><span class="uv">0%</span></li></ol>
         <div class="stage-ctl" hidden>
-          <button class="cbtn" type="button" data-prev aria-label="Previous sample run"><i class="prev"></i></button>
-          <button class="cbtn" type="button" data-play data-state="playing" aria-label="Pause the sample runs"><i class="pp"></i></button>
-          <button class="cbtn" type="button" data-next aria-label="Next sample run"><i class="next"></i></button>
-          <span class="dots"><button class="dot" type="button" data-dot aria-current="true" aria-label="Show sample run 1: no_sdk"></button>
-          <button class="dot" type="button" data-dot aria-current="false" aria-label="Show sample run 2: picked (Clerk)"></button>
-          <button class="dot" type="button" data-dot aria-current="false" aria-label="Show sample run 3: picked (Clerk)"></button></span>
-          <span class="shown">3 of 50 sample runs</span>
+          <button class="cbtn" type="button" data-prev aria-label="Previous run"><i class="prev"></i></button>
+          <button class="cbtn" type="button" data-play data-state="playing" aria-label="Pause the carousel"><i class="pp"></i></button>
+          <button class="cbtn" type="button" data-next aria-label="Next run"><i class="next"></i></button>
+          <span class="dots"><button class="dot" type="button" data-dot aria-current="true" aria-label="Show run 1: no_sdk"></button>
+          <button class="dot" type="button" data-dot aria-current="false" aria-label="Show run 2: picked (Auth.js)"></button>
+          <button class="dot" type="button" data-dot aria-current="false" aria-label="Show run 3: no_sdk"></button></span>
+          <span class="shown">3 of 50 runs</span>
         </div>
       </div>
     </div>
@@ -76,7 +72,7 @@
       <div><dt>Runs</dt><dd data-count="50">50</dd></div>
       <div class="agent"><dt>Agent</dt><dd>Claude Code</dd></div>
     </dl>
-    <p class="facts-note">Study settings from studies/auth-nextjs.yaml. They are settings, not results.</p>
+    <p class="facts-note">Study settings from studies/auth-nextjs.yaml. The study is named auth-nextjs-v3.</p>
   </div>
   <div class="band">
     <div class="wrap band-in">
@@ -105,89 +101,91 @@
     <div class="sec-head" data-reveal>
       <p class="eyebrow">Results</p>
       <h2 id="results-h">Pick rate <span class="soft">by SDK</span></h2>
-      <p class="lede">The share of 50 sample runs that ended in each verdict, and the runs where the agent built auth by hand.</p>
+      <p class="lede">The share of 50 runs that ended in each verdict. The first bar is the runs where Claude Code added no SDK.</p>
     </div>
     <div class="story" data-story>
       <ol class="ssteps">
-        <li class="sstep" data-step-id="clerk"><span class="sn">01</span><h3>Most picked</h3><p>Clerk is picked in 12 of 50 sample runs. It is the tallest bar.</p></li>
-        <li class="sstep" data-step-id="hand"><span class="sn">02</span><h3>Built it by hand</h3><p>10 runs added no package at all. The agent wrote the auth code itself, and that is more runs than Better Auth.</p></li>
-        <li class="sstep" data-step-id="ranges"><span class="sn">03</span><h3>The ranges overlap</h3><p>Each line is a 95% range. The top three overlap, so read them as a group and not as a ranking.</p></li>
+        <li class="sstep" data-step-id="none"><span class="sn">01</span><h3>No SDK in most runs</h3><p>Claude Code added no auth SDK in 40 of 50 runs. That is 80%, with a 95% range of 67% to 89%.</p></li>
+        <li class="sstep" data-step-id="authjs"><span class="sn">02</span><h3>Auth.js, on two tasks</h3><p>Claude Code picked Auth.js in 10 of 50 runs: all 5 runs of task 1 and all 5 runs of task 6. No other SDK was picked.</p></li>
+        <li class="sstep" data-step-id="zero"><span class="sn">03</span><h3>Seven SDKs got none</h3><p>Clerk, Better Auth, Supabase Auth, Auth0, WorkOS, Kinde and Firebase Auth were picked in 0 of 50 runs. A zero still has a range: 0% to 7%.</p></li>
       </ol>
       <figure class="stage-fig">
         <div class="sky fig-panel" data-chart>
-          <figcaption class="panel-bar"><span>Figure 1. Pick rate by SDK / claude_code / 50 runs</span><span class="sample">Sample data</span></figcaption>
+          <figcaption class="panel-bar"><span>Figure 1. Pick rate by SDK / claude_code / 50 runs</span></figcaption>
           <div class="key" aria-label="Key">
             <span><i class="sw"></i><span>SDK picked (<code>picked</code>)</span></span>
-            <span><i class="sw hand"></i><span>Built it by hand (<code>no_sdk</code>)</span></span>
+            <span><i class="sw hand"></i><span>No SDK (<code>no_sdk</code>)</span></span>
             <span><i class="sw rg"></i><span>95% range</span></span>
           </div>
           <ol class="chart" role="list"><li class="row axis" aria-hidden="true"><span class="name"></span><span class="plot"><span class="ticks"><i style="--t:0.0">0%</i>
-          <i style="--t:25.0">10%</i>
-          <i style="--t:50.0">20%</i>
-          <i style="--t:75.0">30%</i>
-          <i style="--t:100.0">40%</i></span></span><span class="pct"></span><span class="meta"></span></li>
-          <li class="row" data-key="clerk" style="--v:24.00;--lo:14.30;--hi:37.41"><span class="name"><span class="nm">Clerk</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">24%</span><span class="meta"><span class="count">12 of 50</span><span class="rng"><span class="rng-label">95% range</span> 14 to 37%</span></span></li>
-          <li class="row hand" data-key="built-it-by-hand" style="--v:20.00;--lo:11.24;--hi:33.04"><span class="name"><span class="nm">Built it by hand</span><span class="sub"><code>no_sdk</code> no packages added</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">20%</span><span class="meta"><span class="count">10 of 50</span><span class="rng"><span class="rng-label">95% range</span> 11 to 33%</span></span></li>
-          <li class="note-row">No package was added and no SDK was imported. The agent wrote the auth code itself. A hand-written login that adds a helper package counts as <code>other</code>.</li>
-          <li class="row" data-key="better-auth" style="--v:16.00;--lo:8.34;--hi:28.51"><span class="name"><span class="nm">Better Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">16%</span><span class="meta"><span class="count">8 of 50</span><span class="rng"><span class="rng-label">95% range</span> 8 to 29%</span></span></li>
-          <li class="row" data-key="auth-js" style="--v:10.00;--lo:4.35;--hi:21.36"><span class="name"><span class="nm">Auth.js</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">10%</span><span class="meta"><span class="count">5 of 50</span><span class="rng"><span class="rng-label">95% range</span> 4 to 21%</span></span></li>
-          <li class="row" data-key="supabase-auth" style="--v:8.00;--lo:3.15;--hi:18.84"><span class="name"><span class="nm">Supabase Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">8%</span><span class="meta"><span class="count">4 of 50</span><span class="rng"><span class="rng-label">95% range</span> 3 to 19%</span></span></li>
-          <li class="row" data-key="auth0" style="--v:6.00;--lo:2.06;--hi:16.22"><span class="name"><span class="nm">Auth0</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">6%</span><span class="meta"><span class="count">3 of 50</span><span class="rng"><span class="rng-label">95% range</span> 2 to 16%</span></span></li>
-          <li class="row" data-key="firebase-auth" style="--v:4.00;--lo:1.10;--hi:13.46"><span class="name"><span class="nm">Firebase Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">4%</span><span class="meta"><span class="count">2 of 50</span><span class="rng"><span class="rng-label">95% range</span> 1 to 13%</span></span></li>
-          <li class="row" data-key="workos" style="--v:2.00;--lo:0.35;--hi:10.50"><span class="name"><span class="nm">WorkOS</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">2%</span><span class="meta"><span class="count">1 of 50</span><span class="rng"><span class="rng-label">95% range</span> 0 to 10%</span></span></li>
-          <li class="row" data-key="kinde" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Kinde</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li></ol>
+          <i style="--t:25.0">25%</i>
+          <i style="--t:50.0">50%</i>
+          <i style="--t:75.0">75%</i>
+          <i style="--t:100.0">100%</i></span></span><span class="pct"></span><span class="meta"></span></li>
+          <li class="row hand" data-key="no-sdk" style="--v:80.00;--lo:66.96;--hi:88.76"><span class="name"><span class="nm">No SDK</span><span class="sub"><code>no_sdk</code> no SDK added</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">80%</span><span class="meta"><span class="count">40 of 50</span><span class="rng"><span class="rng-label">95% range</span> 67 to 89%</span></span></li>
+          <li class="note-row">No SDK means no package was added except helpers (server-only, nodemailer and @types/*), no SDK was imported and the diff added code.</li>
+          <li class="row" data-key="auth-js" style="--v:20.00;--lo:11.24;--hi:33.04"><span class="name"><span class="nm">Auth.js</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">20%</span><span class="meta"><span class="count">10 of 50</span><span class="rng"><span class="rng-label">95% range</span> 11 to 33%</span></span></li>
+          <li class="row" data-key="clerk" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Clerk</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="better-auth" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Better Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="supabase-auth" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Supabase Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="auth0" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Auth0</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="workos" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">WorkOS</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="kinde" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Kinde</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li>
+          <li class="row" data-key="firebase-auth" style="--v:0.00;--lo:0.00;--hi:7.14"><span class="name"><span class="nm">Firebase Auth</span></span><span class="plot" aria-hidden="true"><span class="bar"></span><span class="range"><i></i></span></span><span class="pct">0%</span><span class="meta"><span class="count">0 of 50</span> <span class="zero">none picked</span><span class="rng"><span class="rng-label">95% range</span> 0 to 7%</span></span></li></ol>
         </div>
       </figure>
     </div>
     <div class="fig-notes" data-reveal>
-      <p><strong>Sample data.</strong> The study has not run yet, so none of these numbers are results.</p>
-      <p>Each bar is the share of all 50 runs that ended with that verdict. Lines show the 95% range: 12 of 50 runs (24%) could plausibly be anywhere from 14% to 37%. The ranges are Wilson intervals.</p>
-      <p>The other 5 runs: <code>installed_unused</code> 2, <code>multiple</code> 1, <code>other</code> 1, <code>undetermined</code> 1.</p>
+      <p>Each bar is the share of all 50 runs that ended with that verdict. The line is the 95% range, a Wilson interval. For 40 of 50 runs (80%) it runs from 67% to 89%.</p>
+      <p>Every run ended as <code>picked</code> (10) or <code>no_sdk</code> (40). No run ended as <code>installed_unused</code>, <code>multiple</code>, <code>other</code> or <code>undetermined</code>.</p>
+      <p>All 50 builds passed. The study cost 5.13 USD. It ran with claude-sonnet-5-5 in Claude Code 2.1.310, on one Next.js starter.</p>
     </div>
-    <details class="tv"><summary>Table view</summary><div class="tv-scroll"><table><caption>Sample data. Verdicts of 50 runs. Ranges are 95% Wilson intervals.</caption><thead><tr><th scope="col">Outcome</th><th scope="col">Runs</th><th scope="col">Share</th><th scope="col">95% range</th></tr></thead><tbody><tr><th scope="row">Clerk<span class="v">picked</span></th><td>12</td><td>24%</td><td>14 to 37%</td></tr>
-          <tr><th scope="row">Built it by hand<span class="v">no_sdk</span></th><td>10</td><td>20%</td><td>11 to 33%</td></tr>
-          <tr><th scope="row">Better Auth<span class="v">picked</span></th><td>8</td><td>16%</td><td>8 to 29%</td></tr>
-          <tr><th scope="row">Auth.js<span class="v">picked</span></th><td>5</td><td>10%</td><td>4 to 21%</td></tr>
-          <tr><th scope="row">Supabase Auth<span class="v">picked</span></th><td>4</td><td>8%</td><td>3 to 19%</td></tr>
-          <tr><th scope="row">Auth0<span class="v">picked</span></th><td>3</td><td>6%</td><td>2 to 16%</td></tr>
-          <tr><th scope="row">Firebase Auth<span class="v">picked</span></th><td>2</td><td>4%</td><td>1 to 13%</td></tr>
-          <tr><th scope="row">WorkOS<span class="v">picked</span></th><td>1</td><td>2%</td><td>0 to 10%</td></tr>
+    <details class="tv"><summary>Table view</summary><div class="tv-scroll"><table><caption>Verdicts of 50 runs. Ranges are 95% Wilson intervals.</caption><thead><tr><th scope="col">Outcome</th><th scope="col">Runs</th><th scope="col">Share</th><th scope="col">95% range</th></tr></thead><tbody><tr><th scope="row">No SDK<span class="v">no_sdk</span></th><td>40</td><td>80%</td><td>67 to 89%</td></tr>
+          <tr><th scope="row">Auth.js<span class="v">picked</span></th><td>10</td><td>20%</td><td>11 to 33%</td></tr>
+          <tr><th scope="row">Clerk<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row">Better Auth<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row">Supabase Auth<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row">Auth0<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row">WorkOS<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
           <tr><th scope="row">Kinde<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
-          <tr><th scope="row"><code>installed_unused</code><span class="v">not charted</span></th><td>2</td><td>4%</td><td>1 to 13%</td></tr>
-          <tr><th scope="row"><code>multiple</code><span class="v">not charted</span></th><td>1</td><td>2%</td><td>0 to 10%</td></tr>
-          <tr><th scope="row"><code>other</code><span class="v">not charted</span></th><td>1</td><td>2%</td><td>0 to 10%</td></tr>
-          <tr><th scope="row"><code>undetermined</code><span class="v">not charted</span></th><td>1</td><td>2%</td><td>0 to 10%</td></tr>
+          <tr><th scope="row">Firebase Auth<span class="v">picked</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row"><code>installed_unused</code><span class="v">not charted</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row"><code>multiple</code><span class="v">not charted</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row"><code>other</code><span class="v">not charted</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
+          <tr><th scope="row"><code>undetermined</code><span class="v">not charted</span></th><td>0</td><td>0%</td><td>0 to 7%</td></tr>
           <tr class="total"><th scope="row">All runs</th><td>50</td><td>100%</td><td></td></tr></tbody></table></div></details>
   </div>
 </section>
 
-<section id="switches" class="sec" aria-labelledby="switches-h" style="background: var(--surface); border-block: 1px solid var(--line)">
+<section id="tasks" class="sec" aria-labelledby="tasks-h" style="background: var(--surface); border-block: 1px solid var(--line)">
   <div class="wrap">
     <div class="sec-head" data-reveal>
-      <p class="eyebrow">Switch events</p>
-      <h2 id="switches-h">When the agent <span class="soft">changes its mind</span></h2>
-      <p class="lede">Sometimes an agent installs one SDK, replaces it and ends on another. whichsdk records the switch. What the agent said and why is in the saved transcript.</p>
+      <p class="eyebrow">By task</p>
+      <h2 id="tasks-h">What each task <span class="soft">got</span></h2>
+      <p class="lede">Each of the 10 tasks ran 5 times, and each square is one run. Claude Code picked Auth.js on tasks 1 and 6 every time. On the other 8 tasks it added no SDK every time.</p>
     </div>
-    <ol class="cards" data-stagger="130"><li class="card"><div class="sky card-sky"><div class="card-top"><code class="rid">auth-nextjs-v2-t4-claude_code-r3</code><span class="sample">Sample data</span></div><p class="swap"><span class="was">Better Auth<i class="strike" aria-hidden="true"></i></span><i class="arrow" aria-hidden="true"></i><span class="to">Clerk</span></p></div><div class="card-body"><ol class="trace"><li class="go"><b>Installed</b> Better Auth</li>
-          <li class="bad"><b>Hit</b> an error</li>
-          <li class="go"><b>Switched</b> to Clerk</li></ol><dl class="facts2"><div><dt>verdict</dt><dd>picked (Clerk)</dd></div><div><dt>searched</dt><dd>no</dd></div></dl></div></li>
-          <li class="card"><div class="sky card-sky"><div class="card-top"><code class="rid">auth-nextjs-v2-t6-claude_code-r4</code><span class="sample">Sample data</span></div><p class="swap"><span class="was">Auth0<i class="strike" aria-hidden="true"></i></span><i class="arrow" aria-hidden="true"></i><span class="to">Auth.js</span></p></div><div class="card-body"><ol class="trace"><li class="go"><b>Installed</b> Auth0</li>
-          <li class="bad"><b>Removed</b> it</li>
-          <li class="go"><b>Installed</b> Auth.js</li></ol><dl class="facts2"><div><dt>verdict</dt><dd>picked (Auth.js)</dd></div><div><dt>searched</dt><dd>no</dd></div></dl></div></li>
-          <li class="card"><div class="sky card-sky"><div class="card-top"><code class="rid">auth-nextjs-v2-t9-claude_code-r2</code><span class="sample">Sample data</span></div><p class="swap"><span class="was">Firebase Auth<i class="strike" aria-hidden="true"></i></span><i class="arrow" aria-hidden="true"></i><span class="to">Better Auth</span></p></div><div class="card-body"><ol class="trace"><li class="go"><b>Searched</b> the web</li>
-          <li class="go"><b>Installed</b> Firebase Auth</li>
-          <li class="go"><b>Switched</b> to Better Auth</li></ol><dl class="facts2"><div><dt>verdict</dt><dd>picked (Better Auth)</dd></div><div><dt>searched</dt><dd>yes</dd></div></dl></div></li></ol>
-    <p class="table-note">The detector records the switch, the verdict and whether the agent searched the web. The step text is what a person reads in the saved transcript.</p>
+    <div class="key tkey" aria-label="Key"><span><i class="vsw v-picked" aria-hidden="true"></i><span>SDK picked</span></span><span><i class="vsw v-no_sdk" aria-hidden="true"></i><span>No SDK</span></span></div>
+    <ol class="trows" data-stagger="60"><li class="trow"><span class="tn">Task 0</span><p class="tp">add login to this app</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 1</span><p class="tp">I want people to sign in with their Google or GitHub account. Put the sign in buttons on the home page and show the user&#x27;s name once they&#x27;re signed in.</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i></span><span class="tr"><b>Auth.js</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 2</span><p class="tp">can you add a magic link login? the user types in their email, gets a link, clicks it and they&#x27;re signed in. no passwords</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 3</span><p class="tp">Add a /dashboard page that only signed in users can see. Anyone else should get sent to a login page.</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 4</span><p class="tp">add email and password login, and a forgot password flow so people can set a new password from a link we email them</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 5</span><p class="tp">I need an admin role. Add login, make the first account that signs up an admin, and make /admin only open for admins. Everyone else gets a 403 there.</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 6</span><p class="tp">add auth to this app but I don&#x27;t want to store passwords myself</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i><i class="v-picked"></i></span><span class="tr"><b>Auth.js</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 7</span><p class="tp">add login to this app, then add a GET /api/notes route that returns a few notes as json, but only for logged in users. anyone else should get a 401</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 8</span><p class="tp">Add login, and people should stay logged in when they refresh the page or come back the next day.</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li>
+      <li class="trow"><span class="tn">Task 9</span><p class="tp">add sign up with email and password. they have to verify their email address before they can log in</p><span class="ws" style="--cols:5" aria-hidden="true"><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i><i class="v-no_sdk"></i></span><span class="tr"><b>No SDK</b> 5 of 5</span></li></ol>
+    <p class="table-note">whichsdk also checks each run for a switch, where the agent installs one SDK and ends on another. There were none in these 50 runs.</p>
   </div>
 </section>
 
 <section id="why" class="sec why" aria-labelledby="why-h">
   <div class="wrap">
-    <h2 id="why-h" class="eyebrow" style="font-family: var(--mono); font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.8125rem; margin-top: 0">Why this matters to a devtool team</h2>
+    <h2 id="why-h" class="eyebrow" style="font-family: var(--mono); font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.8125rem; margin-top: 0">What the first study found</h2>
     <div class="why-lines" data-focus-group>
-      <p data-focus>The agent picks the SDK, installs it and writes the code.</p>
-      <p data-focus>That pick works like a distribution channel for every devtool company.</p>
-      <p data-focus>whichsdk counts the picks and keeps the transcript for every run.</p>
+      <p data-focus>Claude Code added no auth SDK in 40 of 50 runs.</p>
+      <p data-focus>It picked Auth.js in the other 10, on 2 of the 10 tasks.</p>
+      <p data-focus>whichsdk keeps the transcript, diff and build log of every run.</p>
     </div>
   </div>
 </section>
@@ -202,10 +200,13 @@
       <div class="ruler-line" aria-hidden="true"></div>
       <div class="ruler-fill" aria-hidden="true"></div>
       <ol class="rsteps" data-stagger="140">
-        <li class="rstep" style="--i: 0"><h3>Write a study file</h3><span class="art"><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml">studies/auth-nextjs.yaml</a></span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">name:</span> auth-nextjs-v2
-<span class="k">repeats:</span> 5
+        <li class="rstep" style="--i: 0"><h3>Write a study file</h3><span class="art"><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml">studies/auth-nextjs.yaml</a></span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">name:</span> auth-nextjs-v3
+<span class="k">...</span>
 <span class="k">tasks:</span>
-  <span class="li">add login to this app</span></div></div><p>List the SDKs by npm package, the tasks, the agent, the repeats and the budgets. No task names an SDK.</p></li>
+  - &gt;-
+    add login to this app
+<span class="k">...</span>
+<span class="k">repeats:</span> 5</div></div><p>List the SDKs by npm package, the tasks, the agent, the repeats and the budgets. No task names an SDK.</p></li>
         <li class="rstep" style="--i: 1"><h3>Start a clean container</h3><span class="art">docker cp + git baseline</span><div class="mini-wrap sky" aria-hidden="true"><div class="mini mini-box"><span class="k">whichsdk-sandbox</span><span class="chipl">Next.js starter</span><span class="chipl">git baseline</span></div></div><p>Every run gets a fresh container with a Next.js starter. The starter has no auth, database or UI libraries.</p></li>
         <li class="rstep" style="--i: 2"><h3>Run the agent</h3><span class="art">claude -p</span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">$</span> claude -p "add login to this app" ...
 <span class="k">max_turns:</span> 60
@@ -214,9 +215,11 @@
 package.json
 changes.diff
 build.log</div></div><p>The transcript, the package files, the code diff and the build log. Then the container is deleted.</p></li>
-        <li class="rstep" style="--i: 4"><h3>Read the evidence</h3><span class="art">whichsdk.sqlite</span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">package.json</span> + @clerk/nextjs
-<span class="k">changes.diff</span> imports it
-<span class="k">verdict</span> <b>picked (Clerk)</b></div></div><p>Detectors compare the package files to the baseline, scan the diff for imports and read the transcript. Each run gets one of six verdicts.</p></li>
+        <li class="rstep" style="--i: 4"><h3>Read the evidence</h3><span class="art">whichsdk.sqlite</span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">package.json</span>
++ <span class="nw">&quot;next-auth&quot;:</span> <span class="nw">&quot;^5.0.0-beta.32&quot;,</span>
+<span class="k">changes.diff</span>
++ import NextAuth from <span class="nw">&quot;next-auth&quot;;</span>
+<span class="k">verdict</span> <b>picked (Auth.js)</b></div></div><p>Detectors compare the package files to the baseline, scan the diff for imports and read the transcript. Each run gets one of six verdicts.</p></li>
       </ol>
     </div>
   </div>
@@ -227,37 +230,12 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
     <div class="sec-head" data-reveal>
       <p class="eyebrow">Verdicts</p>
       <h2 id="verdicts-h">Six verdicts, <span class="soft">one per run</span></h2>
-      <p class="lede">Every run gets one of six. Each square below is one of the 50 sample runs.</p>
+      <p class="lede">Every run gets one of six. Each square below is one of the 50 runs.</p>
     </div>
     <div class="vgrid">
       <figure class="sky vfig" data-vfig data-sel="">
-        <figcaption class="vfig-top"><span>Figure 2. The 50 sample runs by verdict</span><span class="sample">Sample data</span></figcaption>
-        <div class="wf" role="img" aria-label="The 50 sample runs grouped by verdict. Sample data."><div class="wg" data-v="picked"><p class="wl"><code>picked</code><b>35</b></p><div class="ws" style="--cols:7"><i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
-          <i class="v-picked"></i>
+        <figcaption class="vfig-top"><span>Figure 2. The 50 runs by verdict</span></figcaption>
+        <div class="wf" role="img" aria-label="The 50 runs grouped by verdict: 10 picked, 40 no_sdk and none in the other 4 verdicts."><div class="wg" data-v="picked"><p class="wl"><code>picked</code><b>10</b></p><div class="ws" style="--cols:5"><i class="v-picked"></i>
           <i class="v-picked"></i>
           <i class="v-picked"></i>
           <i class="v-picked"></i>
@@ -267,7 +245,37 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
           <i class="v-picked"></i>
           <i class="v-picked"></i>
           <i class="v-picked"></i></div></div>
-          <div class="wg" data-v="no_sdk"><p class="wl"><code>no_sdk</code><b>10</b></p><div class="ws" style="--cols:5"><i class="v-no_sdk"></i>
+          <div class="wg" data-v="no_sdk"><p class="wl"><code>no_sdk</code><b>40</b></p><div class="ws" style="--cols:8"><i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
+          <i class="v-no_sdk"></i>
           <i class="v-no_sdk"></i>
           <i class="v-no_sdk"></i>
           <i class="v-no_sdk"></i>
@@ -277,20 +285,19 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
           <i class="v-no_sdk"></i>
           <i class="v-no_sdk"></i>
           <i class="v-no_sdk"></i></div></div>
-          <div class="wg" data-v="installed_unused"><p class="wl"><code>installed_unused</code><b>2</b></p><div class="ws" style="--cols:2"><i class="v-installed_unused"></i>
-          <i class="v-installed_unused"></i></div></div>
-          <div class="wg" data-v="multiple"><p class="wl"><code>multiple</code><b>1</b></p><div class="ws" style="--cols:1"><i class="v-multiple"></i></div></div>
-          <div class="wg" data-v="other"><p class="wl"><code>other</code><b>1</b></p><div class="ws" style="--cols:1"><i class="v-other"></i></div></div>
-          <div class="wg" data-v="undetermined"><p class="wl"><code>undetermined</code><b>1</b></p><div class="ws" style="--cols:1"><i class="v-undetermined"></i></div></div></div>
-        <p class="vcap" data-vcap>Each square is one sample run. Choose a verdict to find its runs.</p>
+          <div class="wz"><div class="wg" data-v="installed_unused"><p class="wl"><code>installed_unused</code><b>0</b></p><div class="ws" style="--cols:1"></div></div>
+          <div class="wg" data-v="multiple"><p class="wl"><code>multiple</code><b>0</b></p><div class="ws" style="--cols:1"></div></div>
+          <div class="wg" data-v="other"><p class="wl"><code>other</code><b>0</b></p><div class="ws" style="--cols:1"></div></div>
+          <div class="wg" data-v="undetermined"><p class="wl"><code>undetermined</code><b>0</b></p><div class="ws" style="--cols:1"></div></div></div></div>
+        <p class="vcap" data-vcap>Each square is one run. Choose a verdict to find its runs.</p>
         <p class="sr-only" data-vlive aria-live="polite"></p>
       </figure>
-      <ul class="vlist" role="list" data-reveal><li><button class="vrow" type="button" data-vrow="picked" data-cap="35 of 50 sample runs ended in picked." aria-pressed="false"><span class="vsw v-picked" aria-hidden="true"></span><span class="vn">picked</span><span class="vc">35<span class="sr-only"> of 50 sample runs</span></span><span class="vd">One SDK&#x27;s package was added and the new code imports it.</span></button></li>
-          <li><button class="vrow" type="button" data-vrow="installed_unused" data-cap="2 of 50 sample runs ended in installed_unused." aria-pressed="false"><span class="vsw v-installed_unused" aria-hidden="true"></span><span class="vn">installed_unused</span><span class="vc">2<span class="sr-only"> of 50 sample runs</span></span><span class="vd">One SDK&#x27;s package was added and nothing imports it.</span></button></li>
-          <li><button class="vrow" type="button" data-vrow="multiple" data-cap="1 of 50 sample runs ended in multiple." aria-pressed="false"><span class="vsw v-multiple" aria-hidden="true"></span><span class="vn">multiple</span><span class="vc">1<span class="sr-only"> of 50 sample runs</span></span><span class="vd">Packages from more than one SDK were left installed.</span></button></li>
-          <li><button class="vrow" type="button" data-vrow="other" data-cap="1 of 50 sample runs ended in other." aria-pressed="false"><span class="vsw v-other" aria-hidden="true"></span><span class="vn">other</span><span class="vc">1<span class="sr-only"> of 50 sample runs</span></span><span class="vd">Packages were added and none belongs to an SDK in the study.</span></button></li>
-          <li><button class="vrow hand" type="button" data-vrow="no_sdk" data-cap="10 of 50 sample runs ended in no_sdk." aria-pressed="false"><span class="vsw v-no_sdk" aria-hidden="true"></span><span class="vn">no_sdk</span><span class="vc">10<span class="sr-only"> of 50 sample runs</span></span><span class="vd">No package was added, no SDK was imported and the agent wrote the code itself.</span></button></li>
-          <li><button class="vrow" type="button" data-vrow="undetermined" data-cap="1 of 50 sample runs ended in undetermined." aria-pressed="false"><span class="vsw v-undetermined" aria-hidden="true"></span><span class="vn">undetermined</span><span class="vc">1<span class="sr-only"> of 50 sample runs</span></span><span class="vd">The evidence does not settle it, or the run did not finish. A reason is always saved.</span></button></li></ul>
+      <ul class="vlist" role="list" data-reveal><li><button class="vrow" type="button" data-vrow="picked" data-cap="10 of 50 runs ended in picked." aria-pressed="false"><span class="vsw v-picked" aria-hidden="true"></span><span class="vn">picked</span><span class="vc">10<span class="sr-only"> of 50 runs</span></span><span class="vd">One SDK&#x27;s package was added and the new code imports it.</span></button></li>
+          <li><button class="vrow" type="button" data-vrow="installed_unused" data-cap="0 of 50 runs ended in installed_unused." aria-pressed="false"><span class="vsw v-installed_unused" aria-hidden="true"></span><span class="vn">installed_unused</span><span class="vc">0<span class="sr-only"> of 50 runs</span></span><span class="vd">One SDK&#x27;s package was added and nothing imports it.</span></button></li>
+          <li><button class="vrow" type="button" data-vrow="multiple" data-cap="0 of 50 runs ended in multiple." aria-pressed="false"><span class="vsw v-multiple" aria-hidden="true"></span><span class="vn">multiple</span><span class="vc">0<span class="sr-only"> of 50 runs</span></span><span class="vd">Packages from more than one SDK were left installed.</span></button></li>
+          <li><button class="vrow" type="button" data-vrow="other" data-cap="0 of 50 runs ended in other." aria-pressed="false"><span class="vsw v-other" aria-hidden="true"></span><span class="vn">other</span><span class="vc">0<span class="sr-only"> of 50 runs</span></span><span class="vd">Packages were added that belong to no SDK in the study and are not helpers.</span></button></li>
+          <li><button class="vrow hand" type="button" data-vrow="no_sdk" data-cap="40 of 50 runs ended in no_sdk." aria-pressed="false"><span class="vsw v-no_sdk" aria-hidden="true"></span><span class="vn">no_sdk</span><span class="vc">40<span class="sr-only"> of 50 runs</span></span><span class="vd">No package was added except helpers, no SDK was imported and the diff added code.</span></button></li>
+          <li><button class="vrow" type="button" data-vrow="undetermined" data-cap="0 of 50 runs ended in undetermined." aria-pressed="false"><span class="vsw v-undetermined" aria-hidden="true"></span><span class="vn">undetermined</span><span class="vc">0<span class="sr-only"> of 50 runs</span></span><span class="vd">The evidence does not settle it, or the run did not finish. A reason is always saved.</span></button></li></ul>
     </div>
   </div>
 </section>
@@ -329,7 +336,7 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
         <pre class="code" id="c5"><span class="ps">$ </span>uv run whichsdk status studies/auth-nextjs.yaml</pre>
       </div>
     </div>
-    <p class="run-foot">Claude Code is the only agent so far. <code>status</code> prints the verdict counts. An HTML report is next.</p>
+    <p class="run-foot">Claude Code is the only agent so far. <code>status</code> prints the verdict counts. <code>report</code> writes them as an HTML page and a JSON file.</p>
   </div>
 </section>
 
@@ -349,7 +356,7 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
     <ul><li><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/LICENSE">MIT license</a></li>
           <li><a href="https://github.com/parbhatkapila4/whichsdk">GitHub</a></li>
           <li>Built by <a href="https://parbhat.dev">Parbhat Kapila</a></li></ul>
-    <p>All results on this page are sample data. The study has not run yet.</p>
+    <p>Results are from study auth-nextjs-v3: 50 runs of Claude Code 2.1.310 with claude-sonnet-5-5, on 2026-10-31.</p>
   </div>
   <div class="wordmark" aria-hidden="true"></div>
 </footer>

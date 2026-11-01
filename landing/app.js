@@ -247,7 +247,7 @@
     play.addEventListener('click', function () {
       auto = !auto;
       play.setAttribute('data-state', auto ? 'playing' : 'paused');
-      play.setAttribute('aria-label', auto ? 'Pause the sample runs' : 'Play the sample runs');
+      play.setAttribute('aria-label', auto ? 'Pause the carousel' : 'Play the carousel');
       settle();
       if (auto) { go(index + 1, true); }
     });
@@ -279,7 +279,7 @@
         if (byId[entry.target.id]) { byId[entry.target.id].setAttribute('aria-current', 'true'); }
       });
     }, { rootMargin: '-35% 0px -55% 0px' });
-    ['hero', 'results', 'switches', 'why', 'how', 'verdicts', 'run', 'cta'].forEach(function (id) {
+    ['hero', 'results', 'tasks', 'why', 'how', 'verdicts', 'run', 'cta'].forEach(function (id) {
       io.observe(document.getElementById(id));
     });
   }
@@ -323,18 +323,6 @@
     }
   }
 
-  function switchCards() {
-    if (!canAnimate) { return; }
-    $$('.cards .card').forEach(function (card) {
-      if (onFirstScreen(card)) { return; }
-      whenVisible([card], function () {
-        $('.strike', card).animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 520, delay: 450, easing: EASE, fill: 'backwards' });
-        $('.arrow', card).animate([{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: 420, delay: 900, easing: EASE, fill: 'backwards' });
-        $('.swap .to', card).animate([{ opacity: 0.1, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 600, delay: 1200, easing: EASE, fill: 'backwards' });
-      }, { rootMargin: '0px', threshold: 0.4 });
-    });
-  }
-
   function chartStory() {
     var story = $('[data-story]');
     if (!('IntersectionObserver' in window)) { return; }
@@ -351,5 +339,5 @@
   }
 
   [reveals, countUps, growChartBars, growHeroBars, copyButtons, menu, rulerProgress, dimOtherLines,
-    carousel, navSpy, verdictFigure, switchCards, chartStory].forEach(function (init) { init(); });
+    carousel, navSpy, verdictFigure, chartStory].forEach(function (init) { init(); });
 })();
