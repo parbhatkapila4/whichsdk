@@ -30,7 +30,7 @@
   <div class="wrap nav-in">
     <a class="logo" href="#hero"><svg class="glyph" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect class="a" x="2" y="4" width="12" height="4.4" rx="1.2"/><rect class="b" x="2" y="9.8" width="20" height="4.4" rx="1.2"/><rect class="a" x="2" y="15.6" width="7" height="4.4" rx="1.2"/></svg>whichsdk</a>
     <nav class="links" aria-label="Sections"><a href="#results">Results</a><a href="#tasks">By task</a><a href="#how">How it works</a><a href="#verdicts">Verdicts</a><a href="#run">Run it</a></nav>
-    <a class="pill pill-dark" href="https://github.com/parbhatkapila4/whichsdk">GitHub</a>
+    <a class="pill pill-dark" href="https://github.com/parbhatkapila4/whichsdk" data-fast-goal="github_click" data-fast-goal-location="nav">GitHub</a>
     <button class="menu-btn" type="button" data-menu-button aria-expanded="false" aria-controls="menu">Menu</button>
   </div>
   <nav id="menu" class="menu" data-menu hidden aria-label="Sections">
@@ -48,8 +48,8 @@
         <p class="idea">A developer asks a coding agent to add auth. whichsdk runs that request in a clean container. It records which SDK gets installed, if any, and keeps the transcript.</p>
         <p class="finding">In 40 of 50 runs, Claude Code added no auth SDK. In the other 10, it picked Auth.js.</p>
         <div class="actions">
-          <a class="pill pill-dark" href="#results">View the study</a>
-          <a class="pill pill-line" href="https://github.com/parbhatkapila4/whichsdk">GitHub</a>
+          <a class="pill pill-dark" href="#results" data-fast-goal="view_study_click">View the study</a>
+          <a class="pill pill-line" href="https://github.com/parbhatkapila4/whichsdk" data-fast-goal="github_click" data-fast-goal-location="hero">GitHub</a>
         </div>
       </div>
       <div class="sky stage" data-stage role="group" aria-roledescription="carousel" aria-label="Three runs from the study and the bars they count toward">
@@ -206,7 +206,7 @@
       <div class="ruler-line" aria-hidden="true"></div>
       <div class="ruler-fill" aria-hidden="true"></div>
       <ol class="rsteps" data-stagger="140">
-        <li class="rstep" style="--i: 0"><h3>Write a study file</h3><span class="art"><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml">studies/auth-nextjs.yaml</a></span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">name:</span> auth-nextjs-v3
+        <li class="rstep" style="--i: 0"><h3>Write a study file</h3><span class="art"><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/studies/auth-nextjs.yaml" data-fast-goal="github_click" data-fast-goal-location="how">studies/auth-nextjs.yaml</a></span><div class="mini-wrap sky" aria-hidden="true"><div class="mini"><span class="k">name:</span> auth-nextjs-v3
 <span class="k">...</span>
 <span class="k">tasks:</span>
   - &gt;-
@@ -313,31 +313,31 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
     <div class="sec-head" data-reveal>
       <p class="eyebrow">Run it yourself</p>
       <h2 id="run-h">Five commands, <span class="soft">your machine</span></h2>
-      <p class="lede">You need Python 3.11 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, Docker with Linux containers and an Anthropic API key. Get the repo from <a href="https://github.com/parbhatkapila4/whichsdk">GitHub</a> and run every command from its root.</p>
+      <p class="lede">You need Python 3.11 or newer, <a href="https://docs.astral.sh/uv/">uv</a>, Docker with Linux containers and an Anthropic API key. Get the repo from <a href="https://github.com/parbhatkapila4/whichsdk" data-fast-goal="github_click" data-fast-goal-location="run">GitHub</a> and run every command from its root.</p>
     </div>
     <div class="cmds" data-stagger="110">
       <div class="stepcard">
-        <div class="sc-head"><span class="n">1</span><h3>Build the sandbox image</h3><button class="tbtn" type="button" data-copy="c1">Copy</button></div>
+        <div class="sc-head"><span class="n">1</span><h3>Build the sandbox image</h3><button class="tbtn" type="button" data-copy="c1" data-fast-goal="copy_command" data-fast-goal-command="docker_build">Copy</button></div>
         <p>Runs use <code>--pull never</code>, so a run fails if the image is missing.</p>
         <pre class="code" id="c1"><span class="ps">$ </span>docker build -f docker/Dockerfile -t whichsdk-sandbox templates/nextjs-starter</pre>
       </div>
       <div class="stepcard">
-        <div class="sc-head"><span class="n">2</span><h3>Add your key</h3><button class="tbtn" type="button" data-copy="c2">Copy</button></div>
+        <div class="sc-head"><span class="n">2</span><h3>Add your key</h3><button class="tbtn" type="button" data-copy="c2" data-fast-goal="copy_command" data-fast-goal-command="env_key">Copy</button></div>
         <p>Put it in a file named <code>.env</code> in the repo root. The key is passed into the container for Claude Code to use, and the agent runs with permission prompts off, so use a key you can revoke.</p>
         <pre class="code" id="c2">ANTHROPIC_API_KEY=your-key-here</pre>
       </div>
       <div class="stepcard">
-        <div class="sc-head"><span class="n">3</span><h3>Run one task</h3><button class="tbtn" type="button" data-copy="c3">Copy</button></div>
+        <div class="sc-head"><span class="n">3</span><h3>Run one task</h3><button class="tbtn" type="button" data-copy="c3" data-fast-goal="copy_command" data-fast-goal-command="run_one">Copy</button></div>
         <p>This calls the API and costs money. The shipped study sets a 1.00 USD cap per run.</p>
         <pre class="code" id="c3"><span class="ps">$ </span>uv run whichsdk run-one studies/auth-nextjs.yaml --task 0</pre>
       </div>
       <div class="stepcard">
-        <div class="sc-head"><span class="n">4</span><h3>Run the whole study</h3><button class="tbtn" type="button" data-copy="c4">Copy</button></div>
+        <div class="sc-head"><span class="n">4</span><h3>Run the whole study</h3><button class="tbtn" type="button" data-copy="c4" data-fast-goal="copy_command" data-fast-goal-command="run_study">Copy</button></div>
         <p>This calls the API and costs money. The study is capped at 15.00 USD.</p>
         <pre class="code" id="c4"><span class="ps">$ </span>uv run whichsdk run studies/auth-nextjs.yaml --concurrency 3</pre>
       </div>
       <div class="stepcard wide">
-        <div class="sc-head"><span class="n">5</span><h3>Count the verdicts</h3><button class="tbtn" type="button" data-copy="c5">Copy</button></div>
+        <div class="sc-head"><span class="n">5</span><h3>Count the verdicts</h3><button class="tbtn" type="button" data-copy="c5" data-fast-goal="copy_command" data-fast-goal-command="status">Copy</button></div>
         <p>Runs done, failed and pending, the spend so far, and the number of runs with each verdict.</p>
         <pre class="code" id="c5"><span class="ps">$ </span>uv run whichsdk status studies/auth-nextjs.yaml</pre>
       </div>
@@ -359,8 +359,8 @@ build.log</div></div><p>The transcript, the package files, the code diff and the
 <footer id="footer" class="foot">
   <div class="wrap foot-grid">
     <p><strong>whichsdk</strong><br>Measures which SDK a coding agent installs.</p>
-    <ul><li><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/LICENSE">MIT license</a></li>
-          <li><a href="https://github.com/parbhatkapila4/whichsdk">GitHub</a></li>
+    <ul><li><a href="https://github.com/parbhatkapila4/whichsdk/blob/main/LICENSE" data-fast-goal="github_click" data-fast-goal-location="footer_license">MIT license</a></li>
+          <li><a href="https://github.com/parbhatkapila4/whichsdk" data-fast-goal="github_click" data-fast-goal-location="footer">GitHub</a></li>
           <li>Built by <a href="https://parbhat.dev">Parbhat Kapila</a></li></ul>
     <p>Results are from study auth-nextjs-v3: 50 runs of Claude Code 2.1.310 with claude-sonnet-5-5, on 2026-10-31.</p>
   </div>
