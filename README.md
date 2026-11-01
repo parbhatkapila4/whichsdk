@@ -1,6 +1,9 @@
-# whichsdk
+<p align="center"><img src="docs/header.svg" alt="whichsdk: which auth SDK does Claude Code install? 40 of 50 runs added no SDK, 10 picked Auth.js." width="100%"></p>
+<p align="center"><a href="https://whichsdk.parbhat.dev"><img src="https://img.shields.io/badge/live-whichsdk.parbhat.dev-3d6fc4?style=flat-square&amp;labelColor=f6f7f8" alt="live: whichsdk.parbhat.dev"></a> <img src="https://img.shields.io/badge/Python-3.11%2B-55696f?style=flat-square&amp;labelColor=f6f7f8" alt="Python: 3.11+"> <img src="https://img.shields.io/badge/Docker-sandbox-55696f?style=flat-square&amp;labelColor=f6f7f8" alt="Docker: sandbox"> <img src="https://img.shields.io/badge/agent-Claude_Code-55696f?style=flat-square&amp;labelColor=f6f7f8" alt="agent: Claude Code"> <img src="https://img.shields.io/badge/study-40_of_50_no_SDK-e05a24?style=flat-square&amp;labelColor=f6f7f8" alt="study: 40 of 50 no SDK"> <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-55696f?style=flat-square&amp;labelColor=f6f7f8" alt="license: MIT"></a></p>
+<p align="center">Runs a coding agent on a real task in a clean container and records which SDK it actually installs. <a href="https://whichsdk.parbhat.dev"><b>whichsdk.parbhat.dev</b></a></p>
 
-Runs a coding agent on a real task in a clean container and saves what it installs.
+---
+# whichsdk
 
 ## Results
 
