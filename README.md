@@ -2,9 +2,27 @@
 
 Runs a coding agent on a real task in a clean container and saves what it installs.
 
+## Results
+
+Study `auth-nextjs-v3` gave Claude Code 10 auth tasks on a bare Next.js starter, 5 runs each. All 50 runs finished, all 50 builds passed (`npm run build`) and the study cost 5.13 USD. The numbers come from `whichsdk report`.
+
+- No auth SDK in 40 of 50 runs (80%, 95% Wilson range 67% to 89%).
+- Auth.js was the only SDK picked: 10 of 50 runs (20%, range 11% to 33%). All 10 were on two tasks, 5 of 5 each: task 1 (sign in with Google or GitHub) and task 6 ("I don't want to store passwords myself").
+- The other 7 SDKs were picked in 0 of 50 runs each (range 0% to 7%).
+- An earlier full run, `auth-nextjs-v2`, gave the same counts on every task: 40 with no SDK and 10 with Auth.js. Its task 7 had no login step.
+
+### What this doesn't show
+
+- One agent, Claude Code.
+- One model, claude-sonnet-5-5.
+- One Claude Code version, 2.1.310.
+- One bare Next.js starter, with no auth, database or UI libraries.
+- 10 tasks, written by me.
+- A bare starter may itself push Claude Code toward hand-built auth.
+
 ## Why it exists
 
-When a developer asks a coding agent to add auth or payments to their app, the agent picks the SDK, installs it and writes the code. That pick is now a distribution channel for every devtool company, and nobody measures it. whichsdk runs real tasks through coding agents in clean containers and saves what they actually install: the full transcript, the `package.json` and lockfile each run leaves behind, the code it changed and a build log. Detectors then decide which SDK each run picked.
+When a developer asks a coding agent to add auth or payments to their app, the agent decides whether to install an SDK, and which one. That choice is now a distribution channel for every devtool company, and nobody measures it. whichsdk runs real tasks through coding agents in clean containers and saves what they actually do: the full transcript, the `package.json` and lockfile each run leaves behind, the code it changed and a build log. Detectors then decide which SDK, if any, each run picked.
 
 ## Status
 
@@ -61,7 +79,7 @@ uv run whichsdk run-one studies/auth-nextjs.yaml --task 0
 `uv run` installs the Python dependencies on first use. The command prints what the study has spent before it starts, and a summary with the verdict when it finishes. Output lands in the directory you ran from. The run id joins the study, task, agent and repeat:
 
 ```
-runs/auth-nextjs-v2-t0-claude_code-r0/
+runs/auth-nextjs-v3-t0-claude_code-r0/
   transcript.jsonl     Claude Code's raw output: stream-json plus stderr
   package.json         the project files after the agent ran
   package-lock.json    and any other lockfile
@@ -99,7 +117,7 @@ uv run whichsdk report studies/auth-nextjs.yaml --out report.html
 This is `studies/auth-nextjs.yaml` cut down to two competitors and one task. Every field is required except `helper_packages`, and unknown fields are rejected. `uv run whichsdk init my-study` writes `studies/my-study.yaml` with a placeholder competitor and task to edit.
 
 ```yaml
-name: auth-nextjs-v2           # the start of every run id
+name: auth-nextjs-v3           # the start of every run id
 category: auth                 # label; nothing reads it yet
 competitors:                   # the SDKs being compared, by npm package
   - name: Clerk
